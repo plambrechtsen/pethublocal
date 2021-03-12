@@ -1,0 +1,4 @@
+[req]
+distinguished_name=req
+[san]
+subjectAltName="DNS:iot.us-east-1.amazonaws.com,DNS:*.iot.us-east-1.amazonaws.com"
