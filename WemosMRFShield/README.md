@@ -28,3 +28,9 @@ I emailed him and he was very kind to email me the Gerber files he made so I hav
 <img src="./Gerber-top.svg" height="350">|<img src="./Gerber-bottom.svg" height="350">|
 
 The schematic file has the wiring with SJ1 and SJ2, I have decided to use GPIO26 for CS, and GPIO16 for reset rather than using the main reset.
+
+# Hardware Bill of Materials:
+
+ - Wemos D1 ESP32 - I ordered [this one](https://www.aliexpress.com/item/32858054775.htmlhttps://www.aliexpress.com/item/32858054775.html) and there are many around the same price. But be sure to order the ESP32 version that has two rows of pins on both sides, the ESP8266 only has one row.
+ - MRF24J40MA - Zigbee radio controller with "MA" form factor
+ - MRF PCB Shield - Using the [Gerber_PCB_4_2021-02-17.zip](./Gerber_PCB_4_2021-02-17.zip) file you can get it printed at https://jlcpcb.com/ quite cheaply.
