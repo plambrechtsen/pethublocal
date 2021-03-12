@@ -1,8 +1,8 @@
 //Static configuration parameters.
 
 //WiFi settings
-#define WIFI_SSID "..."
-#define WIFI_PASSWORD "..."
+#define WIFI_SSID ".."
+#define WIFI_PASSWORD ".."
 
 //MQTT Settings
 #define MQTT_SERVER "192.168.20.241"
