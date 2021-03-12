@@ -8,7 +8,7 @@ Documentation of the analysis of the Hub, a feeder and pet door and photo of the
 
 ## Docker
 
-A docker container to sniff all zigbee traffic.
+A docker container stuff including sniffer using CC2531 
 
 ## WemosMRFShield
 

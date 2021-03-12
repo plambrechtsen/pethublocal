@@ -1,6 +1,11 @@
+
 # ZIGSNIFF
 
 This container wraps up a single line script to sniff the zigbee traffic using a CC2531.
+
+AliExpress: https://www.aliexpress.com/item/1005001863093680.html (standalone)
+or https://www.aliexpress.com/item/1005001973568180.html (with debugger / flasher)
+Be sure to get the CC2531 as the CC2540 is for Bluetooth not Zigbee. And if you don't already have the debugger / flasher you need the second one. There will no doubt be others on Ali but I liked this one as it had a case.
 
 Using these two documents you need to flash the **sniffer_fw_cc2531.hex** file onto the CC2531 on linux, if you're using windows then you need to flash the firmware zboss wants.
 
@@ -12,12 +17,6 @@ Then the zigsniff_up.sh has two things you may want to modify.
 Firstly it detects the USB port the CC2531 is connected to and connects them as a device in docker, I assume there is only one CC2531 connected and otherwise you should modify the device field accordingly.
 
 Secondly I map the /data/zigsniff folder in the container to /data/surepet/zigsniff, this may need to change.
-
-You also need to create a sqlite database called surepet.db.
-
-This needs to map to your home network which can be gathered from when you login to https://surepetcare.io/ and the API call made to https://app.api.surehub.io/api/me/start to get the required data.
-
-Primarily it is to map the door to the pet, so the doorpetmapping table has to map the door mac and the pet number to the actual pet. I know my values but working out if that can be gathered from the API.
 
 Then the pcap is created, as is a .txt and the .update.txt is the dexored version of the payload.
 
@@ -76,7 +75,7 @@ If you take after the "126" and start with the 29 and remove all spaces you end 
 ```
 Then from the 7th byte in on the Zig packet and removing the last byte as that is a check value you get
 ```
-7369ba9b3330c3be4e1e2cc0e7832aa99fa29980135ff264c6471fab5b23b54f4b5ce5fef84756ed1248
+7369ba9b3330c3be4e1e2cc0e7832aa99fa29980135ff264c6471fab5b23b54f4b5ce5fef84756ed1248ef
 ```
 
 Put them side by side:
@@ -84,7 +83,7 @@ Put them side by side:
 2918000d00c8044200b1e25e0580e9010146010238ffffff01faffff8efeffff60faffff02002c010000
 7369ba9b3330c3be4e1e2cc0e7832aa99fa29980135ff264c6471fab5b23b54f4b5ce5fef84756ed1248
 ```
-And they are the same length..... wooo hoo
+And they are the same length.....
 Now put the two values into:
 http://xor.pw/#
 
@@ -94,10 +93,10 @@ and I get:
 ```
 So that is my XOR key from offset 07. Update `zigsniff.py` with that value at byte 7 in the file where it starts 5a, as yours will be different but at the same offset.
 
-Then you can re-parse the air traffic using as we only care about the packets that start with "01" as the others are beacons and background noise so grepping for the tab and 01.
+Then you can re-parse the air traffic using
 
 ```
-grep -P "\t01" dddddd-tttttt.txt | python3 zigsniff.py 
+grep -P "\t01 dddddd-tttttt.txt | python3 zigsniff.py 
 ```
 
 And you should now have dexored zigsniff and output packets that should match the mqtt msgs folder.
