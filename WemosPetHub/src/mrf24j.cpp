@@ -309,7 +309,7 @@ void Mrf24j::init(void) {
     }
 
     //Set Interupts - Disable Sleep Alert, Wake-up Alert, Half Symbol Timer, Security Key, Enables RX FIFO, Disable TX GTS2 FIFO, Disable TX GTS1 FIFO, Enable TX Normal FIFO
-    write_short(MRF_INTCON, 0b11110110);
+    write_short(MRF_INTCON, 0b11110111);
 
     // Make RF communication stable under extreme temperatures
     write_long(MRF_RFCON0, 0x03); // – Initialize RFOPT = 0x03.
