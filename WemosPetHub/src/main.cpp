@@ -35,7 +35,7 @@ PubSubClient mqttClient(espClient); //lib required for mqtt
 
 //MQTT Callback
 void callback(char* topic, byte* payload, unsigned int length);
-char MQTTTopic[13] = "surepetlocal";
+char MQTTTopic[18] = "pethublocal/local";
 #define MQTTClientID "PetHubLocal"
 
 
@@ -443,12 +443,11 @@ void handle_tx() {
 }
 
 void interrupt_routine() {
-  Serial.print("Interrupt: ");
-  Serial.println(mrf.interrupt_handler()); // mrf24 object interrupt routine
+  mrf.interrupt_handler(); // mrf24 object interrupt routine
 }
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(250000);
   pinMode(LED, OUTPUT);
   digitalWrite(LED, LOW);
 

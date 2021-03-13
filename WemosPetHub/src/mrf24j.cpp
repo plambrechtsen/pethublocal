@@ -27,6 +27,8 @@ static init_params_t init_params;
 // Frame Control Addressing Mode Length Mapping: Not Present, Reserved, Short (2 Bytes) , Long (8 Bytes) 
 static uint8_t fcsamlength[4] = { 0x00, 0x00, 0x02, 0x08 };
 
+SPISettings mySettings = SPISettings(10000000, MSBFIRST, SPI_MODE0);
+
 /**
  * Constructor MRF24J Object.
  * @param pin_reset, @param pin_chip_select, @param pin_interrupt
@@ -48,28 +50,34 @@ Mrf24j::Mrf24j(int pin_reset, int pin_chip_select, int pin_interrupt) {
     pinMode(_pin_cs, OUTPUT);
     pinMode(_pin_int, INPUT);
 
-    SPI.setBitOrder(MSBFIRST) ;
-    SPI.setDataMode(SPI_MODE0);
+//    SPI.setBitOrder(MSBFIRST) ;
+//    SPI.setDataMode(SPI_MODE0);
     SPI.begin();
 }
 
 void Mrf24j::reset(void) {
+    SPI.beginTransaction(mySettings);
     digitalWrite(_pin_reset, LOW);
     delayMicroseconds(300*1000);  // adjusted to be the same value
     digitalWrite(_pin_reset, HIGH);
     delayMicroseconds(300*1000);  // from manual
+    SPI.endTransaction();
+
 }
 
 byte Mrf24j::read_short(byte address) {
+    SPI.beginTransaction(mySettings);
     digitalWrite(_pin_cs, LOW);
     // 0 top for short addressing, 0 bottom for read
     SPI.transfer(address<<1 & 0b01111110);
     byte ret = SPI.transfer(0x00);
     digitalWrite(_pin_cs, HIGH);
+    SPI.endTransaction();
     return ret;
 }
 
 byte Mrf24j::read_long(word address) {
+    SPI.beginTransaction(mySettings);
     digitalWrite(_pin_cs, LOW);
     byte ahigh = address >> 3;
     byte alow = address << 5;
@@ -77,18 +85,22 @@ byte Mrf24j::read_long(word address) {
     SPI.transfer(alow);
     byte ret = SPI.transfer(0);
     digitalWrite(_pin_cs, HIGH);
+    SPI.endTransaction();
     return ret;
 }
 
 void Mrf24j::write_short(byte address, byte data) {
+    SPI.beginTransaction(mySettings);
     digitalWrite(_pin_cs, LOW);
     // 0 for top short address, 1 bottom for write
     SPI.transfer((address<<1 & 0b01111110) | 0x01);
     SPI.transfer(data);
     digitalWrite(_pin_cs, HIGH);
+    SPI.endTransaction();
 }
 
 void Mrf24j::write_long(word address, byte data) {
+    SPI.beginTransaction(mySettings);
     digitalWrite(_pin_cs, LOW);
     byte ahigh = address >> 3;
     byte alow = address << 5;
@@ -96,6 +108,7 @@ void Mrf24j::write_long(word address, byte data) {
     SPI.transfer(alow | 0x10);  // last bit for write
     SPI.transfer(data);
     digitalWrite(_pin_cs, HIGH);
+    SPI.endTransaction();
 }
 
 word Mrf24j::get_pan(void) {
@@ -248,6 +261,8 @@ void Mrf24j::set_channel(byte channel) {
 }
 
 void Mrf24j::init(void) {
+//    SPI.usingInterrupt(digitalPinToInterrupt(pin_interrupt));
+
     // Seems a bit ridiculous when I use reset pin anyway
     write_short(MRF_SOFTRST, 0x7); // from manual
     while ((read_short(MRF_SOFTRST) & 0x7) != 0) {
@@ -312,7 +327,7 @@ void Mrf24j::init(void) {
  * continue working.
  * Only the most recent data is ever kept.
  */
-uint8_t Mrf24j::interrupt_handler(void) {
+void Mrf24j::interrupt_handler(void) {
     uint8_t last_interrupt = read_short(MRF_INTSTAT);
     if (last_interrupt & MRF_I_RXIF) {
         flag_got_rx++;
@@ -367,7 +382,6 @@ uint8_t Mrf24j::interrupt_handler(void) {
         tx_info.retries = tmp >> 6;
         tx_info.channel_busy = (tmp & (1 << CCAFAIL));
     }
-    return last_interrupt;
 }
 
 

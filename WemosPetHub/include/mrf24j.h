@@ -339,7 +339,7 @@ class Mrf24j
         //void beaconack(byte type);
         tx_info_t * beaconack(byte type);
 
-        uint8_t interrupt_handler(void);
+        void interrupt_handler(void);
 
         void check_flags(void (*rx_handler)(void), void (*tx_handler)(void));
 
