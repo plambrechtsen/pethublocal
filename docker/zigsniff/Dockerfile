@@ -4,9 +4,7 @@ RUN apk add --no-cache build-base git libusb-dev
 
 WORKDIR /data
 
-COPY . .
 # Compile the binaries
-
 RUN git clone https://github.com/homewsn/whsniff
 
 WORKDIR /data/whsniff
@@ -30,6 +28,4 @@ WORKDIR /data
 ENV PATH /usr/sbin:$PATH
 
 ENTRYPOINT ["/data/docker-entrypoint.sh"]
-
-# Install mosquitto
 
