@@ -1,5 +1,5 @@
 import sys,binascii,array
-import surepetpacket as spp
+import pethubpacket as spp
 
 PrintZigline = False
 

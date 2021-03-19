@@ -1,0 +1,12 @@
+version: "3.4"
+services:
+#Zigsniff sniffer using CC2531 - read https://github.com/plambrechtsen/pethublocal/blob/master/docker/zigsniff/README.md for setup instructions, the USB device *WILL* need to be updated.
+  pethublocal_zigsniff:
+    build: .
+    container_name: pethublocal_zigsniff
+    volumes:
+      - './output/zigsniff:/data/zigsniff'
+      - '/etc/localtime:/etc/localtime:ro'
+    devices:
+      - '/dev/bus/usb/001/003'
+

@@ -1,4 +1,3 @@
-
 # ZIGSNIFF
 
 This container wraps up a single line script to sniff the zigbee traffic using a CC2531.

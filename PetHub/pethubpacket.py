@@ -40,15 +40,15 @@ fCloseDelayArr={0:"Fast", 4000:"Normal", 20000:"Slow"}                          
 fBowls={1:"Single", 2:"Double"}                                                 # Feeder number of bowls
 fDirection={0:"Looked in", 1:"in", 2:"out", 3:"3", 4:"4", 5:"5", 6:"6", 7:"7" , 8:"8", 9:"9" } # Direction
 
-#Import xor key from surepetpacket.xorkey and make sure it is sane.
-xorfile=Path('/data/surepetpacket.xorkey').read_text()
+#Import xor key from pethubpacket.xorkey and make sure it is sane.
+xorfile=Path('/data/pethubpacket.xorkey').read_text()
 if len(xorfile) > 20 and len(xorfile) % 2 == 0:
     xorkey=bytearray.fromhex(xorfile)
 else:
-    sys.exit("Corrupted surepetpacket.xorkey file, make sure the length is an even set of bytes")
+    sys.exit("Corrupted pethubpacket.xorkey file, make sure the length is an even set of bytes")
 
-#Load Surepet database
-conn=sqlite3.connect('/data/surepet.db')
+#Load PetHubLocal database
+conn=sqlite3.connect('pethublocal.db')
 curs=conn.cursor()
 conn.row_factory = sqlite3.Row
 
