@@ -101,7 +101,6 @@ def doorhextochip(chiphex):
     #print("Door   Hex to Chip : " + chiphex + " " + chip)
     return chip
 
-
 #Conversion of byte arrays into integers
 def b2ih(b2ihvalue):
     #Divide int by 100 to give two decimal places for weights
@@ -125,6 +124,21 @@ def tohex(ba):
 #Convert a int to hex
 def hb(hexbyte):
     return format(hexbyte,'02x')
+    
+def petmovement(mac_address, deviceindex):
+    curs.execute('select tag from tagmap where mac_address=(?) and deviceindex=(?)', (mac_address, deviceindex))
+    tagval = curs.fetchone()
+    if (tagval):
+        tag=str(tagval[0])
+        curs.execute('select name from pets where tag=(?)', ([tag]))
+        petval = curs.fetchone()
+        if (petval):
+            petname=petval[0]
+        else:
+            petname="Unknown"
+    else:
+        petname="Unknown"
+    return petname
 
 #126 Frames aka 0x7E (126) or 0x2A (Wire value with TBC XOR) can have multiple messages, so need to loop until you get to the end
 def parsemultiframe(payload):
@@ -235,45 +249,190 @@ def parseframe(value):
     return "FF-**TODO** Unknown - " + tohex(value)
 
 #Parse Pet Door Frames aka 132's sent to the pet door
-def parsedoorframe(operation,offset,value):
+def parsedataframe(operation,device,offset,value):
     message=bytearray.fromhex(value)
     if PrintFrameDbg:
         print("Operation: " + operation + " -offset- " + str(offset) + " -value- " + value)
     logmsg=""
+    if offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
+        logmsg += device + " " + operation + "-Time    : "+ int(message[1]) +":"+ int(message[2])
+        if int(message[0]) > 2:
+            logmsg += "Addional bytes:"+tohex(message[3:])
     if offset == 36: #Lock state
-        logmsg += operation + "-Lockstate    : "+ pDLockState[int(message[1])]
+        logmsg += device + " " + operation + "-Lockstate       : "+ pDLockState[int(message[1])]
         if int(message[0]) > 1:
             logmsg += "Addional bytes:"+tohex(message[2:])
     elif offset == 40: #Keep pets out allow incoming state
-        logmsg += operation + "-Keep pets out: "+pDKeepPetsOutState[int(message[1])]
+        logmsg += device + " " + operation + "-Keep pets out   : "+pDKeepPetsOutState[int(message[1])]
         if int(message[0]) > 1:
             logmsg += "Addional bytes:"+tohex(message[2:])
     elif offset == 59: #Provisioned Chip Count
-        logmsg += operation + "-Prov Chip #     : "+(message[1])
+        logmsg += device + " " + operation + "-Prov Chip #     : "+(message[1])
         if int(message[0]) > 1:
             logmsg += "Addional bytes:"+tohex(message[2:])
     elif offset >= 91 and offset <= 308: #Provisioned chips
         pet=round((int(offset)-84)/7) #Calculate the pet number
         chip=doorhextochip(value[4:]) #Calculate chip Number
-        logmsg += operation + "-Prov Chip ID   "+ str(pet) + " : Chip number " + chip
+        logmsg += device + " " + operation + "-Prov Chip ID   "+ str(pet) + " : Chip number " + chip
     elif offset == 519: #Curfew
-        logmsg += operation + "-Curfew       : "+pDCurfewState[message[1]] + " Lock: "+str(message[2]).zfill(2)+":"+str(message[3]).zfill(2) + " Unlock: "+str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
+        logmsg += device + " " + operation + "-Curfew          : "+pDCurfewState[message[1]] + " Lock: "+str(message[2]).zfill(2)+":"+str(message[3]).zfill(2) + " Unlock: "+str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
 #        if int(value[1]) > 6:
 #            logmsg += "Addional bytes:"+tohex(value[2:])
-    elif offset >= 525 and offset <= 618: #Pet moment in or out
-        pet=round((int(offset)-522)/3) #Calculate the pet number
+    elif offset >= 525 and offset <= 618: #Pet movement in or out
+        pet=round((int(offset)-522)/3)-1 #Calculate the pet number
+        petname = petmovement(device, pet)
         if message[3] in dDirection:
             direction = dDirection[message[3]]
         else:
             direction = "Other " + hb(message[3])
-        logmsg += operation + "-PetMovement ID " + str(pet) + " : Went " + direction
+        logmsg += device + " " + operation + "-Pet Movement    : " + petname + " went " + direction
  #       print("Pet " + str(pet) + " went " + message[3])
     elif offset == 621: #Unknown pet went outside
-        logmsg += operation + "-PetMovement ID   : Unknown pet went outside " + tohex(value)
+        logmsg += device + " " + operation + "-Pet Movement    : Unknown pet went outside " + value
     else:
-        print("other offset" + str(offset) + " message " + tohex(value))
-        logmsg += operation + "-Other offset    : " + str(offset) + " msg " + tohex(value))
+        logmsg += device + " " + operation + "-Other offset    : " + str(offset) + " len " + str(int(message[0])) + " msg " + tohex(message[1:])
+        #print("other offset" + logmsg)
     return logmsg
+
+def buildmqtt(type,value):
+#  ts = str(binascii.hexlify(struct.pack('>I', round(datetime.utcnow().timestamp()))),'ascii')
+  ts = hex(round(datetime.utcnow().timestamp()))[2:]
+  return ts + " 1000 "+type+" " + " ".join(value[i:i+2] for i in range(0, len(value), 2))
+
+#Generate message
+def generatemessage(msgtype,msg):
+    if type=="hub":
+        print("TBC")
+    elif type=="feeder":
+        if operation == "ackfeederstatedoor":
+        #Acknowledge the 18 door state.
+            msgstr = "0000ZZ00TTTTTTTT180000"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "ackfeederstate16":
+            #Acknowledge the 16 state.
+            msgstr = "0000ZZ00TTTTTTTT160000"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "ackfeederstate09":
+            #Acknowledge the 09 settings update state.
+            msgstr = "0000ZZ00TTTTTTTT090000"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "getcurrentstate0b":
+        #Request boot message state 0b
+            msgstr = "0100ZZ00TTTTTTTT0b00"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "getbootstate0c":
+            #Request boot message state 0c
+            msgstr = "0100ZZ00TTTTTTTT0c00"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "getbootstate10":
+        #Request boot message state 10
+            msgstr = "0100ZZ00TTTTTTTT1000"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "getprovisionedchipsstate":
+            #This tells the feeder to dump all provisioned chips
+            msgstr = "0100ZZ00TTTTTTTT1100ff"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "getbootstate17":
+            #Request boot message state 17
+            msgstr = "0100ZZ00TTTTTTTT170000"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "lidclosedelayfast":
+            #Update lid close delay to fast = 0
+            msgstr = "0900ZZ00TTTTTTTT0d00000000"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "lidclosedelaynormal":
+            #Update lid close delay to normal = 4000 (0fa0) - 4 seconds(?)
+            msgstr = "0900ZZ00TTTTTTTT0da00f0000"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "lidclosedelayslow":
+            #Update lid close delay to slow = 20000 (4e20) - 20 seconds(?)
+            msgstr = "0900ZZ00TTTTTTTT0d204e0000"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "setleftscaleweight":
+            #Set left or single bowl scale weight
+            msgstr = "0900ZZ00TTTTTTTT0aWWWWWWWW"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            weight= str(binascii.hexlify(struct.pack('<I', opvalue*100)),'ascii')
+            msgstr = msgstr.replace("WWWWWWWW", weight)
+            return msgstr
+        elif operation == "setrightscaleweight":
+            #Set right scale weight
+            msgstr = "0900ZZ00TTTTTTTT0bWWWWWWWW"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            weight= str(binascii.hexlify(struct.pack('<I', opvalue*100)),'ascii')
+            msgstr = msgstr.replace("WWWWWWWW", weight)
+            return msgstr
+        elif operation == "setbowlcount":
+            #Set bowl count either 01 for one bowl or 02 for two.
+            msgstr = "0900ZZ00TTTTTTTT0cWW000000"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            msgstr = msgstr.replace("WW", format(opval,'02x'))
+            return msgstr
+        elif operation == "set12message":
+            #Not sure what caused this but it happened around setting the scales - 12f4010000
+            msgstr = "0900ZZ00TTTTTTTT12WWWWWWWW"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            weight= str(binascii.hexlify(struct.pack('<I', opvalue)),'ascii')
+            msgstr = msgstr.replace("WWWWWWWW", weight)
+            return msgstr
+        elif operation == "zeroleftscale":
+            #Zero the left scale, first need to check feeder is open via Message 18 state 
+            msgstr = "0d00ZZ00TTTTTTTT001900000003000000000101"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "zerorightscale":
+            #Zero the right scale, first need to check feeder is open via Message 18 state 
+            msgstr = "0d00ZZ00TTTTTTTT001900000003000000000102"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            return msgstr
+        elif operation == "zerobothscales":
+            #Zero the both scales, first need to check feeder is open via Message 18 state 
+            msgstr = "0d00ZZ002601e354001900000003000000000103"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            return msgstr
+        else:
+            print("Unknown message")
+    elif type=="petdoor":
+        if operation == "settime":
+            #Set the time, packet 34 or 22 in hex
+            msgstr = "022202HHMM"
+            msgstr = msgstr.replace('HHMM', time)
+            return msgstr
+        if operation == "enablecurfew":
+            #Set the time, packet 36 or 24 in hex
+            msgstr = "02240104"
+            return msgstr
+
+    else:
+        print("Unknown type")
 
 def decodemiwi(timestamp,source,destination,framestr):
     framexor=bytearray.fromhex(framestr)
@@ -315,7 +474,7 @@ def decodemiwi(timestamp,source,destination,framestr):
             if Print132Frame:
                 print("DF-132 Request: " + tohex(payload))
             if frame[4] == 0x0a:
-                print(parsedoorframe('Action',b2i(payload[1:2]),tohex(payload[3:-1])))
+                print(parsedataframe('Action',b2i(payload[1:2]),tohex(payload[3:-1])))
             else:
                 print("Status" + hb(frame[4]))
     else:
@@ -363,13 +522,13 @@ def decodehubmqtt(timestamp,source,destination,topic,message):
             if Print132Frame:
                 print("132 Message : "+message)
             msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedoorframe
-            print(parsedoorframe('Status',int(msgsplit[4]),"".join(msgsplit[5:])))
+            print(timestamp + " " + msgsplit[0] + " " + PacketDirection + " " + PacketType + " " + parsedataframe('Status',device, int(msgsplit[4]),"".join(msgsplit[5:])))
         elif msgsplit[2] == "2": #Action message setting value to Pet Door
             #Action message doesn't have a counter
             if Print2Frame:
                 print("2 Message : "+message)
             msgsplit[4] = hb(int(msgsplit[4])) #Convert length at offset 4 which is decimal into hex byte so we pass it as a hex string to parsedoorframe
-            print(parsedoorframe('Action-Set',int(msgsplit[3]),"".join(msgsplit[4:])))
+            print(timestamp + " " + msgsplit[0] + " " + PacketDirection + " " + PacketType + " " + parsedataframe('  Set',device, int(msgsplit[3]),"".join(msgsplit[4:])))
     return hubmqttmsg
 
 '''
