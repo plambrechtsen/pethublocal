@@ -109,9 +109,15 @@ with open('start.json') as json_file:
         conn.commit()
 
         if product_id == 3: #Pet Door
-            curfewenabled = device['control']['curfew']['enabled']
-            lock_time = device['control']['curfew']['lock_time']
-            unlock_time = device['control']['curfew']['unlock_time']
+            if 'enabled' in device['control']['curfew']:
+                curfewenabled = device['control']['curfew']['enabled']
+                lock_time = device['control']['curfew']['lock_time']
+                unlock_time = device['control']['curfew']['unlock_time']
+            else:
+                curfewenabled = 0
+                lock_time = ""
+                unlock_time = ""
+
             lockingmode = device['control']['locking']
 #            c.execute("INSERT INTO doors values((?), (?), (?), (?), (?));", (deviceid, curfewenabled, lock_time, unlock_time, lockingmode))
             c.execute("INSERT INTO doors values((?), (?), (?), (?), (?));", (mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
@@ -119,10 +125,32 @@ with open('start.json') as json_file:
 
         if product_id == 4: #Feeder
             bowltarget1 = device['control']['bowls']['settings'][0]['target']
-            bowltarget2 = device['control']['bowls']['settings'][1]['target']
+            if device['control']['bowls']['type'] == 4:
+                #Two bowls
+                bowltarget2 = device['control']['bowls']['settings'][1]['target']
+            elif device['control']['bowls']['type'] == 1:
+                #One bowls
+                bowltarget2 = 0
+            else:
+                #Unknown value
+                bowltarget2 = 0
             close_delay = device['control']['lid']['close_delay']
 #            c.execute("INSERT INTO feeders values((?), (?), (?), (?));", (deviceid, bowltarget1, bowltarget2, close_delay))
             c.execute("INSERT INTO feeders values((?), (?), (?), (?));", (mac_address, bowltarget1, bowltarget2, close_delay))
+            conn.commit()
+
+        if product_id == 6: #Cat Door
+            if 'enabled' in device['control']['curfew']:
+                curfewenabled = device['control']['curfew']['enabled']
+                lock_time = device['control']['curfew']['lock_time']
+                unlock_time = device['control']['curfew']['unlock_time']
+            else:
+                curfewenabled = 0
+                lock_time = ""
+                unlock_time = ""
+            lockingmode = device['control']['locking']
+#            c.execute("INSERT INTO doors values((?), (?), (?), (?), (?));", (deviceid, curfewenabled, lock_time, unlock_time, lockingmode))
+            c.execute("INSERT INTO doors values((?), (?), (?), (?), (?));", (mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
             conn.commit()
 
         if 'tags' in device:
