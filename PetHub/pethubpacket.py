@@ -473,10 +473,8 @@ def decodemiwi(timestamp,source,destination,framestr):
             logmsg="132: " + tohex(payload)
             if Print132Frame:
                 print("DF-132 Request: " + tohex(payload))
-            if frame[4] == 0x0a:
-                print(parsedataframe('Action',b2i(payload[1:2]),tohex(payload[3:-1])))
-            else:
-                print("Status" + hb(frame[4]))
+            print(parsedataframe('Status',source,int(b2ib(payload[0:2])),tohex(payload[2:-1])))
+                
     else:
         logmsg = "Corrupt Frame " + tohex(frame)
     return "Received frame at: " + timestamp + " from: " + sourcemac + " to: " + destinationmac + " " + logmsg
