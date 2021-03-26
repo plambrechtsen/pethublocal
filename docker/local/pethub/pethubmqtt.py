@@ -9,7 +9,7 @@ logger = logging.getLogger(__file__)
 logging.basicConfig(level=logging.WARN)
 
 #MQTT for pethublocal/hub where the hub messages go
-mqtt_hub = 'mqtt://192.168.1.251/'
+mqtt_hub = 'mqtt://mqtt/'
 #MQTT for Home Assistant
 mqtt_local = 'mqtt://192.168.1.251/'
 mqtt_local_t = 'pethublocal/local/'

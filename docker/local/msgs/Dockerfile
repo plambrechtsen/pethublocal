@@ -1,10 +1,12 @@
-FROM alpine:3.12
+FROM python:3.7-alpine
 
 # Install mosquitto
-RUN apk add --no-cache --virtual mosquitto mosquitto-clients moreutils expect && rm -rf /var/cache/apk/* /tmp/*
+RUN apk add --no-cache mosquitto mosquitto-clients moreutils expect gcc musl-dev linux-headers && rm -rf /var/cache/apk/* /tmp/*
 
-COPY docker-entrypoint.sh /docker-entrypoint.sh
+WORKDIR /msgs
+
+COPY . . 
 
 ENV PATH /usr/sbin:$PATH
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
+ENTRYPOINT ["/msgs/docker-entrypoint.sh"]
