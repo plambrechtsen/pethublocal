@@ -33,7 +33,7 @@ if conn is not None:
 #    sqlcmd(conn, "CREATE TABLE doors(deviceid INTEGER, curfewenabled INTEGER, lock_time TEXT, unlock_time TEXT, lockingmode INTEGER );")
     sqlcmd(conn, "CREATE TABLE doors(mac_address TEXT, curfewenabled INTEGER, lock_time TEXT, unlock_time TEXT, lockingmode INTEGER );")
 #    sqlcmd(conn, "CREATE TABLE feeders(deviceid INTEGER, bowltarget1 INTEGER, bowltarget2 INTEGER, close_delay INTEGER );")
-    sqlcmd(conn, "CREATE TABLE feeders(mac_address TEXT, bowltarget1 INTEGER, bowltarget2 INTEGER, close_delay INTEGER );")
+    sqlcmd(conn, "CREATE TABLE feeders(mac_address TEXT, bowltarget1 INTEGER, bowltarget2 INTEGER, bowltype INTEGER, close_delay INTEGER );")
 #    sqlcmd(conn, "CREATE TABLE tagmap(deviceid INTEGER, deviceindex INTEGER, tagid INTEGER, UNIQUE (deviceid, deviceindex) ON CONFLICT REPLACE );")
     sqlcmd(conn, "CREATE TABLE tagmap(mac_address TEXT, deviceindex INTEGER, tag TEXT, UNIQUE (mac_address, deviceindex) ON CONFLICT REPLACE );")
 #    sqlcmd(conn, "CREATE TABLE pets(tagid INTEGER, name TEXT, tag TEXT );")
@@ -125,10 +125,11 @@ with open('start.json') as json_file:
 
         if product_id == 4: #Feeder
             bowltarget1 = device['control']['bowls']['settings'][0]['target']
-            if device['control']['bowls']['type'] == 4:
+            bowltype = device['control']['bowls']['type']:
+            if bowltype == 4:
                 #Two bowls
                 bowltarget2 = device['control']['bowls']['settings'][1]['target']
-            elif device['control']['bowls']['type'] == 1:
+            elif bowltype == 1:
                 #One bowls
                 bowltarget2 = 0
             else:
@@ -136,7 +137,7 @@ with open('start.json') as json_file:
                 bowltarget2 = 0
             close_delay = device['control']['lid']['close_delay']
 #            c.execute("INSERT INTO feeders values((?), (?), (?), (?));", (deviceid, bowltarget1, bowltarget2, close_delay))
-            c.execute("INSERT INTO feeders values((?), (?), (?), (?));", (mac_address, bowltarget1, bowltarget2, close_delay))
+            c.execute("INSERT INTO feeders values((?), (?), (?), (?));", (mac_address, bowltarget1, bowltarget2, bowltype, close_delay))
             conn.commit()
 
         if product_id == 6: #Cat Door

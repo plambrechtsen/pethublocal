@@ -104,9 +104,13 @@ def doorhextochip(chiphex):
 #Conversion of byte arrays into integers
 def b2ih(b2ihvalue):
     #Divide int by 100 to give two decimal places for weights
-    return str(int(b2i(b2ihvalue))/100)
+    return str(int(b2is(b2ihvalue))/100)
 
-def b2i(b2ivalue):
+def b2iu(b2ivalue):
+    #Take little endian hex byte array and convert it into a int then into a string.
+    return str(int.from_bytes(b2ivalue, byteorder='little', signed=False))
+
+def b2is(b2ivalue):
     #Take little endian hex byte array and convert it into a int then into a string.
     return str(int.from_bytes(b2ivalue, byteorder='little', signed=True))
 
@@ -141,7 +145,9 @@ def petmovement(mac_address, deviceindex):
     return petname
 
 #126 Frames aka 0x7E (126) or 0x2A (Wire value with TBC XOR) can have multiple messages, so need to loop until you get to the end
-def parsemultiframe(payload):
+def parsemultiframe(device, payload):
+    response = []
+    operation = []
     multimsg = ""
     count=0
     while len(payload) > 2:
@@ -149,135 +155,229 @@ def parsemultiframe(payload):
             multimsg += ","
         multilen=payload[0]+1
         curmessage=payload[1:multilen]
-        resmessage=parseframe(curmessage)
-        if len(resmessage) > 0 and Print126Frame:
-            print(resmessage)
-        #Append parsed message response
-        multimsg += resmessage
+        respmsg = parseframe(device, curmessage)
+        op=respmsg[0]
+        operation.append(op['OP'])
+        respmsg.remove(op)
+        response.append(respmsg)
         #Remove the parsed payload and loop again
         del payload[0:multilen]
         count += 1
-    return multimsg
+    response.append({"OP":operation})
+    return response
 
 #Parse Feeder Frame 
 #127 Frame aka 0x7F (127) or 0x2D (Wire value with TBC XOR) are a single payload vs 126 need parsemultiframe as they have multiple messages in a single frame
-def parseframe(value):
-#  print("Parse : " + ''.join(format(x, '02x') for x in value))
-  if value[0] == 0x00:
-    #Send Acknowledge for data type
-    msg = "FF-00: Acknowledge data type " + hb(value[8])
-    if Print126Frame:
-      print(msg)
-    return msg
-  elif value[0] == 0x01:
-    #Send query for data type
-    msg = "FF-01: Query data type " + hb(value[8])
-    if Print126Frame:
-      print(msg)
-    return msg
-  elif value[0] == 0x07:
-    #Send query for data type
-    msg = "FF-07: **TODO** data type " + tohex(value[8:13])
-    if Print126Frame:
-      print(msg)
-    return msg
-  elif value[0]==0x09:
-    if Print126Frame:
-      print("FF-09: Update settings - ", hb(value[8]))
-    msg="FF-09: Update settings-"
-    submessagevalue = b2i(value[9:12])
-    submessagevalueh = b2ih(value[9:12])
-    if value[8]==0x05:
-      msg += "TrainingMode=" + submessagevalue
-    elif value[8]==0x0a:
-      msg += "SetLeftWeight=" + submessagevalueh
-    elif value[8]==0x0b:
-      msg += "SetRightWeight=" + submessagevalueh
-    elif value[8]==0x0c:
-      msg += "SetFeederBowls=" + fBowls[int(submessagevalue)]
-    elif value[8]==0x0d:
-      msg += "CloseDelay=" + fCloseDelayArr[int(submessagevalue)]
-    elif value[8]==0x12:
-      msg += "**TODO** 12=" + tohex(value[9:12])
-    elif value[8]==0x17:
-      msg += "ZeroLeft=" + submessagevalueh
-    elif value[8]==0x18:
-      msg += "ZeroRight=" + submessagevalueh
-    elif value[8]==0x19:
-      msg += "**TODO** 19=" + tohex(value[9:12])
+def parseframe(device, value):
+    response = []
+    msg=""
+#   print("Parse : " + ''.join(format(x, '02x') for x in value))
+    if value[0] == 0x00:
+        #Send Acknowledge for data type
+        response.append({"OP":"ACK"})
+        response.append({"FF-00":"ACK-" + hb(value[8])})
+        msg = "FF-00: Acknowledge data type " + hb(value[8])
+        if Print126Frame:
+            print(msg)
+        return response
+    elif value[0] == 0x01:
+        #Send query for data type
+        response.append({"OP":"Query"})
+        response.append("FF-01:QRY-" + hb(value[8]))
+        msg = "FF-01: Query data type " + hb(value[8])
+        if Print126Frame:
+            print(msg)
+        return response
+    elif value[0] == 0x07:
+        #Send query for data type
+        response.append({"OP":"MSG07"})
+        response.append("FF-07:???-" + tohex(value[8:13]))
+        msg = "FF-07: **TODO** data type " + tohex(value[8:13])
+        if Print126Frame:
+            print(msg)
+        return response
+    elif value[0]==0x09:
+        response.append({"OP":"UpdateState"})
+        if Print126Frame:
+            print("FF-09: Update settings - ", hb(value[8]))
+        msg="FF-09: Update settings-"
+        submessagevalue = b2is(value[9:12])
+        submessagevalueh = b2ih(value[9:12])
+        if value[8]==0x05:
+            msg += "TrainingMode=" + submessagevalue
+            response.append("FF-09:TRN-" + submessagevalue)
+        elif value[8]==0x0a:
+            msg += "SetLeftWeight=" + submessagevalueh
+            response.append("FF-09:SLW-" + submessagevalueh)
+        elif value[8]==0x0b:
+            msg += "SetRightWeight=" + submessagevalueh
+            response.append("FF-09:SRW-" + submessagevalueh)
+        elif value[8]==0x0c:
+            msg += "SetFeederBowls=" + fBowls[int(submessagevalue)]
+            response.append("FF-09:SBC-" + fBowls[int(submessagevalue)])
+        elif value[8]==0x0d:
+            msg += "CloseDelay=" + fCloseDelayArr[int(submessagevalue)]
+            response.append("FF-09:CLD-" + fCloseDelayArr[int(submessagevalue)])
+        elif value[8]==0x12:
+            msg += "**TODO** 12=" + tohex(value[9:12])
+            response.append("FF-09:?12=" + tohex(value[9:12]))
+        elif value[8]==0x17:
+            msg += "ZeroLeft=" + submessagevalueh
+            response.append("FF-09:ZLW=" + submessagevalueh)
+        elif value[8]==0x18:
+            msg += "ZeroRight=" + submessagevalueh
+            response.append("FF-09:ZRW=" + submessagevalueh)
+        elif value[8]==0x19:
+            msg += "**TODO** 19=" + tohex(value[9:12])
+            response.append("FF-09:?19=" + tohex(value[9:12]))
+        else:
+            msg += "**TODO** Unknown-" + tohex(value)
+            response.append("FF-09:???=" + tohex(value))
+        if Print126Frame:
+            print(msg)
+        return response
+    elif value[0] == 0x0b:
+        response.append({"OP":"Boot"})
+        msg = "FF-0b: **TODO** Boot 0b " + tohex(value[3:])
+        response.append("FF-0B:" + tohex(value[3:]))
+        if Print126Frame:
+            print(msg)
+        return response
+    elif value[0] == 0x0c:
+        response.append({"OP":"Boot"})
+        msg = "FF-0c: **TODO** Boot 0c " + tohex(value[3:])
+        response.append("FF-0C:" + tohex(value[3:]))
+        if Print126Frame:
+            print(msg)
+        return response
+    elif value[0] == 0x10:
+        response.append({"OP":"Boot"})
+        msg = "FF-10: **TODO** Boot 10 " + tohex(value[3:])
+        response.append("FF-10:" + tohex(value[3:]))
+        if Print126Frame:
+          print(msg)
+        return response
+    elif value[0] == 0x11:
+        response.append({"OP":"Boot"})
+        msg = "FF-11: **TODO** Msg 11 " + tohex(value[3:])
+        response.append("FF-11:" + tohex(value[3:]))
+        if Print126Frame:
+          print(msg)
+        return response
+    elif value[0] == 0x16:
+        response.append({"OP":"MSG16"})
+        msg = "FF-16: **TODO** Msg 16 " + tohex(value[3:])
+        response.append("FF-16:" + tohex(value[3:]))
+        if Print126Frame:
+          print(msg)
+        return response
+    elif value[0] == 0x18:
+        response.append({"OP":"Feed"})
+        #Hard code feeder states
+        if value[15] in fStateArr:
+            msgval = {}
+            if value[15] in range(4, 8):
+                tag="Manual"
+                msgval["Animal"]="Manual"
+            else:
+                tag = feederhextochip(tohex(value[8:15]))
+                curs.execute('select name from pets where tag=(?)', ([tag]))
+                petval = curs.fetchone()
+                if (petval):
+                    msgval["Animal"]=petval[0]
+                else:
+                    msgval["Animal"]=tag
+            action=fStateArr[value[15]]
+            feederopenseconds=b2iu(value[16:17])
+            scaleleftfrom=b2ih(value[19:23])
+            scaleleftto=b2ih(value[23:27])
+            scalerightfrom=b2ih(value[27:31])
+            scalerightto=b2ih(value[31:35])
+            msgval["FA"]=action
+            msgval["FOS"]=feederopenseconds
+            msgval["SLF"]=scaleleftfrom #Or if single bowl
+            msgval["SLT"]=scaleleftto
+            msgval["SRF"]=scalerightfrom
+            msgval["SRT"]=scalerightto
+
+            #Return bowl count
+            curs.execute('select bowltype from feeders where mac_address=(?)', ([device]))
+            bowlval = curs.fetchone()
+            if (bowlval):
+                msgval["BC"]=bowlval[0]
+            else:
+                msgval["BC"]=1
+            response.append(msgval)
+            print("FF-18: Feeder door change - chip="+tag+",action="+fStateArr[value[15]]+',feederopenseconds='+ b2iu(value[16:17])+',scaleleftfrom='+b2ih(value[19:23])+',scaleleftto='+b2ih(value[23:27])+',scalerightfrom='+b2ih(value[27:31])+',scalerightto='+b2ih(value[31:35]))
+            return response
+        else:
+            print("FF-18: Feeder door change - **TODO** unknown state " + hb(value[15]))
+            response.append("FF-18:Unknown" + hb(value[15]))
+            return respone
     else:
-      msg += "**TODO** Unknown-" + tohex(value)
-    if Print126Frame:
-      print(msg)
-    return msg
-  elif value[0] == 0x0b:
-    msg = "FF-0b: **TODO** Boot 0b " + tohex(value[3:])
-    if Print126Frame:
-      print(msg)
-    return msg
-  elif value[0] == 0x0c:
-    msg = "FF-0c: **TODO** Boot 0c " + tohex(value[3:])
-    if Print126Frame:
-      print(msg)
-    return msg
-  elif value[0] == 0x10:
-    msg = "FF-10: **TODO** Boot 10 " + tohex(value[3:])
-    if Print126Frame:
-      print(msg)
-    return msg
-  elif value[0] == 0x11:
-    msg = "FF-11: **TODO** Msg 11 " + tohex(value[3:])
-    if Print126Frame:
-      print(msg)
-    return msg
-  elif value[0] == 0x16:
-    msg = "FF-16: **TODO** Msg 16 " + tohex(value[3:])
-    if Print126Frame:
-      print(msg)
-    return msg
-  elif value[0] == 0x18:
-    #Hard code feeder states
-    if value[15] in fStateArr:
-      if value[15] in range(4, 8):
-        chip="Manual"
-      else:
-        chip = feederhextochip(tohex(value[8:15]))
-      return "FF-18: Feeder door change - chip="+chip+",action="+fStateArr[value[15]]+',secondsopen='+ b2i(value[16:17])+',scaleleftfrom='+b2ih(value[19:23])+',scaleleftto='+b2ih(value[23:27])+',scalerightfrom='+b2ih(value[27:31])+',scalerightto='+b2ih(value[31:35])
-    else:
-      return "FF-18: Feeder door change - **TODO** unknown state " + hb(value[15])
-  else:
-    return "FF-**TODO** Unknown - " + tohex(value)
+        response.append("FF-??:"+tohex(value))
+        msg = "FF-**TODO** Unknown - " + tohex(value)
+        print(msg)
+        return response
 
 #Parse Pet Door Frames aka 132's sent to the pet door
 def parsedataframe(operation,device,offset,value):
+    response = []
+    operation = []
+
     message=bytearray.fromhex(value)
     if PrintFrameDbg:
         print("Operation: " + operation + " -offset- " + str(offset) + " -value- " + value)
     logmsg=""
     if offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
         logmsg += device + " " + operation + "-Time    : "+ int(message[1]) +":"+ int(message[2])
+        msgval = {}
+        msgval['Time']=int(message[1]) +":"+ int(message[2])
+        operation.append("SetTime")
+        response.append(msgval)
         if int(message[0]) > 2:
             logmsg += "Addional bytes:"+tohex(message[3:])
     if offset == 36: #Lock state
         logmsg += device + " " + operation + "-Lockstate       : "+ pDLockState[int(message[1])]
+        msgval = {}
+        msgval['Lock']=pDLockState[int(message[1])]
+        operation.append("LockState")
+        response.append(msgval)
         if int(message[0]) > 1:
             logmsg += "Addional bytes:"+tohex(message[2:])
     elif offset == 40: #Keep pets out allow incoming state
         logmsg += device + " " + operation + "-Keep pets out   : "+pDKeepPetsOutState[int(message[1])]
+        msgval = {}
+        msgval['PetsOut']=pDKeepPetsOutState[int(message[1])]
+        operation.append("KeepPetsOut")
+        response.append(msgval)
         if int(message[0]) > 1:
             logmsg += "Addional bytes:"+tohex(message[2:])
     elif offset == 59: #Provisioned Chip Count
         logmsg += device + " " + operation + "-Prov Chip #     : "+(message[1])
+        msgval = {}
+        msgval['ChipCount']=message[1]
+        operation.append("ProvChipCount")
+        response.append(msgval)
         if int(message[0]) > 1:
             logmsg += "Addional bytes:"+tohex(message[2:])
     elif offset >= 91 and offset <= 308: #Provisioned chips
         pet=round((int(offset)-84)/7) #Calculate the pet number
         chip=doorhextochip(value[4:]) #Calculate chip Number
+        msgval = {}
+        msgval['Chip']=chip
+        msgval['PetOffset']=pet
+        operation.append("ProvChip")
+        response.append(msgval)
         logmsg += device + " " + operation + "-Prov Chip ID   "+ str(pet) + " : Chip number " + chip
     elif offset == 519: #Curfew
         logmsg += device + " " + operation + "-Curfew          : "+pDCurfewState[message[1]] + " Lock: "+str(message[2]).zfill(2)+":"+str(message[3]).zfill(2) + " Unlock: "+str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
-#        if int(value[1]) > 6:
-#            logmsg += "Addional bytes:"+tohex(value[2:])
+        msgval = {}
+        msgval['CurfewState']=pDCurfewState[message[1]]
+        msgval['CurfewOn']=str(message[2]).zfill(2)+":"+str(message[3]).zfill(2)
+        msgval['CurfewOff']=str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
+        operation.append("Curfew")
+        response.append(msgval)
     elif offset >= 525 and offset <= 618: #Pet movement in or out
         pet=round((int(offset)-522)/3)-1 #Calculate the pet number
         petname = petmovement(device, pet)
@@ -285,14 +385,134 @@ def parsedataframe(operation,device,offset,value):
             direction = dDirection[message[3]]
         else:
             direction = "Other " + hb(message[3])
-        logmsg += device + " " + operation + "-Pet Movement    : " + petname + " went " + direction
+        msgval = {}
+        msgval['PetOffset']=pet
+        msgval['Animal']=petmovement(device, pet)
+        msgval['Direction']=direction
+        operation.append("PetMovement")
+        response.append(msgval)
+        #logmsg += device + " " + operation + "-Pet Movement    : " + petname + " went " + direction
  #       print("Pet " + str(pet) + " went " + message[3])
     elif offset == 621: #Unknown pet went outside
+        msgval = {}
+        msgval['PetOffset']="621"
+        msgval['Animal']="Unknown Pet"
+        msgval['Direction']="Outside"
+        operation.append("PetMovement")
+        response.append(msgval)
         logmsg += device + " " + operation + "-Pet Movement    : Unknown pet went outside " + value
     else:
         logmsg += device + " " + operation + "-Other offset    : " + str(offset) + " len " + str(int(message[0])) + " msg " + tohex(message[1:])
         #print("other offset" + logmsg)
-    return logmsg
+
+    response.append({"OP":operation})
+    return response
+
+def decodehubmqtt(topic,message):
+    response = dict();
+    msgsplit=message.split()
+    topicsplit=topic.split('/')
+    device=topicsplit[-1:][0]
+
+    #Decode device name
+    if device=="messages":
+        response['device'] = "hub"
+    else:
+        curs.execute('select name from devices where mac_address=(?)', ([device]))
+        devicename = curs.fetchone()
+        if devicename:
+            response['device'] = str(devicename[0])
+        else:
+            response['device'] = str(device)
+    response['message'] = msgsplit
+    
+    response['timestamp'] = msgsplit[0]
+    
+    if msgsplit[1] == "1000":
+        operation = "Command"
+    else:
+        operation = "Status"
+    response['operation'] = operation
+
+
+    print(message)
+    #Device message
+    if msgsplit[2] == "127": #Feeder frame sent/control message
+        #ba = bytearray([0x7F])
+        print("message 127")
+        ba = bytearray.fromhex("".join(msgsplit[3:]))
+        respmsg = parseframe(device,ba)
+        operation = []
+        op=respmsg[0]
+        operation.append(op['OP'])
+        respmsg.remove(op)
+        resp = []
+        resp.append(respmsg)
+        resp.append({"OP":operation})
+        response['message'] = resp
+    elif msgsplit[2] == "126": #Feeder frame status message
+        #ba = bytearray([0x7E])
+        ba = bytearray.fromhex("".join(msgsplit[3:]))
+        response['message'] = parsemultiframe(device,ba)
+
+    elif msgsplit[2] == "132": #Pet Door Status
+        #Status message has a counter at offset 4 we can ignore:
+        if Print132Frame:
+            print("132 Message : "+message)
+        msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
+        response['message'] = parsedataframe(operation,device, int(msgsplit[4]),"".join(msgsplit[5:]))
+    elif msgsplit[2] == "2": #Action message setting value to Pet Door
+        #Action message doesn't have a counter
+        if Print2Frame:
+            print("2 Message : "+message)
+        msgsplit[4] = hb(int(msgsplit[4])) #Convert length at offset 4 which is decimal into hex byte so we pass it as a hex string to parsedoorframe
+        response['message'] = parsedataframe(operation,device, int(msgsplit[3]),"".join(msgsplit[4:]))
+    return response
+
+def decodemiwi(timestamp,source,destination,framestr):
+    framexor=bytearray.fromhex(framestr)
+    #Convert MAC addresses into reverse byte format.
+    sourcemac=''.join(list(reversed(source.split(":")))).upper()
+    destinationmac=''.join(list(reversed(destination.split(":")))).upper()
+
+    #Dexor the frame
+    frame = list(map(xor, framexor, xorkey))
+
+    if PrintFrame:
+        print("Received frame at: " + timestamp + " from: " + sourcemac + " to: " + destinationmac)
+        print("Packet:" + tohex(framexor))
+        print("Dexor :" + tohex(frame))
+    if len(frame) > 8:
+        if PrintFrameDbg:
+            print("Frame Type       :", hb(frame[2]))
+            print("Frame Length     :", len(frame))
+            print("Frame Length Val :", frame[4])
+        payload=frame[6:]
+        logmsg=""
+        if frame[2] == 0x2a: #126 Message Feeder to Hub Message
+            logmsg="2A: "
+            if Print126Frame:
+                print("FF-126 Request: " + tohex(payload))
+            resmessage=parsemultiframe(payload)
+            if len(resmessage) > 0 and Print127Frame:
+                print("126 Resp :", resmessage)
+        elif frame[2] == 0x2d: #127 Message Hub to Feeder control message
+            logmsg="2D: "
+            if Print127Frame:
+                print("FF-127 Request: " + tohex(payload))
+            resmessage=parseframe(payload)
+            logmsg += resmessage
+            if len(resmessage) > 0 and Print127Frame:
+                print("Frame 2D message :", resmessage)
+        elif frame[2] == 0x3c: #Pet door frame
+            logmsg="132: " + tohex(payload)
+            if Print132Frame:
+                print("DF-132 Request: " + tohex(payload))
+            print(parsedataframe('Status',source,int(b2ib(payload[0:2])),tohex(payload[2:-1])))
+                
+    else:
+        logmsg = "Corrupt Frame " + tohex(frame)
+    return "Received frame at: " + timestamp + " from: " + sourcemac + " to: " + destinationmac + " " + logmsg
 
 def buildmqtt(type,value):
 #  ts = str(binascii.hexlify(struct.pack('>I', round(datetime.utcnow().timestamp()))),'ascii')
@@ -434,100 +654,9 @@ def generatemessage(msgtype,msg):
     else:
         print("Unknown type")
 
-def decodemiwi(timestamp,source,destination,framestr):
-    framexor=bytearray.fromhex(framestr)
-    #Convert MAC addresses into reverse byte format.
-    sourcemac=''.join(list(reversed(source.split(":")))).upper()
-    destinationmac=''.join(list(reversed(destination.split(":")))).upper()
 
-    #Dexor the frame
-    frame = list(map(xor, framexor, xorkey))
 
-    if PrintFrame:
-        print("Received frame at: " + timestamp + " from: " + sourcemac + " to: " + destinationmac)
-        print("Packet:" + tohex(framexor))
-        print("Dexor :" + tohex(frame))
-    if len(frame) > 8:
-        if PrintFrameDbg:
-            print("Frame Type       :", hb(frame[2]))
-            print("Frame Length     :", len(frame))
-            print("Frame Length Val :", frame[4])
-        payload=frame[6:]
-        logmsg=""
-        if frame[2] == 0x2a: #126 Message Feeder to Hub Message
-            logmsg="2A: "
-            if Print126Frame:
-                print("FF-126 Request: " + tohex(payload))
-            resmessage=parsemultiframe(payload)
-            if len(resmessage) > 0 and Print127Frame:
-                print("126 Resp :", resmessage)
-        elif frame[2] == 0x2d: #127 Message Hub to Feeder control message
-            logmsg="2D: "
-            if Print127Frame:
-                print("FF-127 Request: " + tohex(payload))
-            resmessage=parseframe(payload)
-            logmsg += resmessage
-            if len(resmessage) > 0 and Print127Frame:
-                print("Frame 2D message :", resmessage)
-        elif frame[2] == 0x3c: #Pet door frame
-            logmsg="132: " + tohex(payload)
-            if Print132Frame:
-                print("DF-132 Request: " + tohex(payload))
-            print(parsedataframe('Status',source,int(b2ib(payload[0:2])),tohex(payload[2:-1])))
-                
-    else:
-        logmsg = "Corrupt Frame " + tohex(frame)
-    return "Received frame at: " + timestamp + " from: " + sourcemac + " to: " + destinationmac + " " + logmsg
 
-def decodehubmqtt(timestamp,source,destination,topic,message):
-    hubmqttmsg=""
-    msgsplit=message.split()
-    topicsplit=topic.split('/')
-    device=topicsplit[-1:][0]
-    if PrintFrame:
-        print("Received frame at: " + timestamp + " from: " + source + " to: " + destination + " device " + device + " message " + message)
-    if source == "52.21.126.49":
-        PacketDirection = "ToHub"
-    else:
-        PacketDirection = "ToCloud"
-    if msgsplit[1] == "1000":
-        PacketType = "Command"
-    elif PacketDirection == "ToHub" and msgsplit[1] != "1000":
-        PacketType = "Ack"
-    else:
-        PacketType = "Status"
-#    print(str(topicsplit[-1:][0]))
-    if PrintFrame:
-        print("Received frame at: " + timestamp + " from: " + source + " to: " + destination + " topic " + topic + " message " + message)
-    decodemqttmsg = ""
-    if destination == "messages":
-        #Hub message
-        Device="Hub"
-    else:
-        #Device message
-        if msgsplit[2] == "127" and PacketType == "Command":
-            #ba = bytearray([0x7F])
-            ba = bytearray.fromhex("".join(msgsplit[3:]))
-            decodemqttmsg = timestamp + " " + msgsplit[0] + " " + PacketDirection + " " + PacketType + " " + parseframe(ba)
-            print(decodemqttmsg)
-        elif msgsplit[2] == "126" and PacketType == "Status":
-            #ba = bytearray([0x7E])
-            ba = bytearray.fromhex("".join(msgsplit[3:]))
-            decodemqttmsg = timestamp + " " + msgsplit[0] + " " + PacketDirection + " " + PacketType + " " + parsemultiframe(ba)
-            print(decodemqttmsg)
-        elif msgsplit[2] == "132": #Pet Door Status
-            #Status message has a counter at offset 4 we can ignore:
-            if Print132Frame:
-                print("132 Message : "+message)
-            msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedoorframe
-            print(timestamp + " " + msgsplit[0] + " " + PacketDirection + " " + PacketType + " " + parsedataframe('Status',device, int(msgsplit[4]),"".join(msgsplit[5:])))
-        elif msgsplit[2] == "2": #Action message setting value to Pet Door
-            #Action message doesn't have a counter
-            if Print2Frame:
-                print("2 Message : "+message)
-            msgsplit[4] = hb(int(msgsplit[4])) #Convert length at offset 4 which is decimal into hex byte so we pass it as a hex string to parsedoorframe
-            print(timestamp + " " + msgsplit[0] + " " + PacketDirection + " " + PacketType + " " + parsedataframe('  Set',device, int(msgsplit[3]),"".join(msgsplit[4:])))
-    return hubmqttmsg
 
 '''
         #else:
