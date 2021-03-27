@@ -21,7 +21,7 @@
 """
 
 import binascii, struct, time, sys, sqlite3, json
-import paho.mqtt.client as mqtt
+#import paho.mqtt.client as mqtt
 
 from datetime import datetime
 from operator import xor
