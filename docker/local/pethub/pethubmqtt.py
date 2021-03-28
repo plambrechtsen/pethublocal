@@ -45,12 +45,11 @@ async def hubtolocal(hub_url, local_url, loop):
                     if feedermsg['BC'] > 1:
                         asyncio.create_task(local.publish(topic=localtopic + 'rightfrom', message=feedermsg['SRF'].encode('utf-8') , qos=QOS_0))
                         asyncio.create_task(local.publish(topic=localtopic + 'rightto', message=feedermsg['SRT'].encode('utf-8') , qos=QOS_0))
-#                if "PetMovement" in values:
-#                    print(pethub)
-#                   print(pethub['message'][0])
-#                    localtopic = mqtt_local_t + pethub['device'] 
-                    #+ '/' + pethub['message'][0][0]['Animal'] + "/"
-                    #asyncio.create_task(local.publish(topic=localtopic + 'direction', message=pethub['message'][0][0]['Direction'].encode('utf-8') , qos=QOS_0))
+                if "PetMovement" in values:
+                    msg = next((fm for fm in pethub['message'] if fm['OP'] == "PetMovement"), None)
+                    localtopic = mqtt_local_t + pethub['device'] + '/' + msg['Animal'] + '/'
+                    asyncio.create_task(local.publish(topic=localtopic + 'direction', message=msg['Direction'].encode('utf-8') , qos=QOS_0))
+#                    asyncio.create_task(local.publish(topic=localtopic + 'offset', message=msg['PetOffset'].encode('utf-8') , qos=QOS_0))
             print(pethub)
     except asyncio.CancelledError:
         await hub.unsubscribe(['pethublocal/hub/#'])

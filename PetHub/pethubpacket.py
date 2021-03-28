@@ -90,15 +90,15 @@ class LockedOutState(SureEnum): # Locked Out State for preventing animals coming
     LOCKED_IN       = 3  # Keep pets out
 
 class PetDirection(SureEnum): #
-    Out_61          = 0x61
+    LookedOut_40    = 0x40
+    In_61           = 0x61
     Out_62          = 0x62
+    In_81           = 0x81
 
 class CurfewState(SureEnum): # Sure Petcare API State IDs.
     DISABLED        = 1
     ENABLED         = 2
     STATE3          = 3
-
-
 
 #Feeder static values
 pDCurfewState={1:"Disabled",2:"Enabled"}
@@ -155,10 +155,13 @@ def doorchiptohex(chip):
     return chiphex
 
 def doorhextochip(chiphex):
-    chipbin = "{0:48b}".format(int.from_bytes(bytes.fromhex(chiphex), byteorder='big'))[::-1]
-    #print(chipbin)
-    chip=str(int(chipbin[:10],2)) + "." + str(int(chipbin[10:],2)).zfill(12)
-    #print("Door   Hex to Chip : " + chiphex + " " + chip)
+    if int(chiphex,16) == 0:
+        chip = "Null"
+    else:
+        chipbin = "{0:48b}".format(int.from_bytes(bytes.fromhex(chiphex), byteorder='big'))[::-1]
+        #print(chipbin)
+        chip=str(int(chipbin[:10],2)) + "." + str(int(chipbin[10:],2)).zfill(12)
+        #print("Door   Hex to Chip : " + chiphex + " " + chip)
     return chip
 
 #Conversion of byte arrays into integers
@@ -336,20 +339,50 @@ def parseframe(device, value):
 def parsehubframe(operation,device,offset,value):
     response = []
     operation = []
+    msgval = {}
     message=bytearray.fromhex(value)
+    if PrintFrameDbg:
+        print("Operation: " + operation + " device " + device + " offset " + str(offset) + " -value- " + value)
     logmsg=""
-    if offset >= 0:
-        msgval = {}
-        msgval['Msg']=value
-        operation.append("MSG")
+    if offset == 33: #Battery and 
+        print("Value",message[1])
+        op="BatteryandTime"
+        msgval['OP']=op
+        operation.append(op)
+        msgval['Battery']=hb(message[1])
+        msgval['Time']=converttime(message[2:4])
         response.append(msgval)
+    elif offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
+        op="SetTime"
+        msgval['OP']=op
+        operation.append(op)
+        msgval['Time']=converttime(message[1:3])
+        response.append(msgval)
+        #logmsg += device + " " + operation + "-Time    : "+ int(message[1]) +":"+ int(message[2])
+        #if int(message[0]) > 2:
+        #    logmsg += "Addional bytes:"+tohex(message[3:])
+    elif offset == 36: #Lock state
+        op="LockState"
+        msgval['OP']=op
+        operation.append(op)
+        msgval['Lock']=LockState(int(message[1])).name
+        response.append(msgval)
+        #logmsg += device + " " + operation + "-Lockstate       : "+ pDLockState[int(message[1])]
+        #if int(message[0]) > 1:
+        #    logmsg += "Addional bytes:"+tohex(message[2:])
     else:
-        msgval = {}
-        msgval['Msg']=value
-        operation.append("MSG")
-        response.append(msgval)
+        op="Other"
+        msgval['OP']=op
+        operation.append(op)
+        msgval['MSG']=value
+        #print("Other ", value)
+        #logmsg += device + " " + operation + "-Other offset    : " + value
+        #print("other offset" + logmsg)
     response.append({"OP":operation})
     return response
+
+def converttime(timearray):
+    return ':'.join(format(x, '02d') for x in timearray)
 
 #Parse Pet Door Frames aka 132's sent to the pet door
 def parsedoorframe(operation,device,offset,value):
@@ -360,28 +393,26 @@ def parsedoorframe(operation,device,offset,value):
     if PrintFrameDbg:
         print("Operation: " + operation + " device " + device + " offset " + str(offset) + " -value- " + value)
     logmsg=""
-    if offset == 33: #Battery and Time
+    if offset == 33: #Battery and 
+        print("Value",message[1])
         op="BatteryandTime"
         msgval['OP']=op
         operation.append(op)
-        msgval['Battery']=int(message[1])
-        msgval['Time']=int(message[2]) +":"+ int(message[3])
-        response.append(msgval)
-    if offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
+        msgval['Battery']=hb(message[1])
+        msgval['Time']=converttime(message[2:4])
+    elif offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
         op="SetTime"
         msgval['OP']=op
         operation.append(op)
-        msgval['Time']=int(message[1]) +":"+ int(message[2])
-        response.append(msgval)
+        msgval['Time']=converttime(message[1:3])
         #logmsg += device + " " + operation + "-Time    : "+ int(message[1]) +":"+ int(message[2])
         #if int(message[0]) > 2:
         #    logmsg += "Addional bytes:"+tohex(message[3:])
-    if offset == 36: #Lock state
+    elif offset == 36: #Lock state
         op="LockState"
         msgval['OP']=op
         operation.append(op)
         msgval['Lock']=LockState(int(message[1])).name
-        response.append(msgval)
         #logmsg += device + " " + operation + "-Lockstate       : "+ pDLockState[int(message[1])]
         #if int(message[0]) > 1:
         #    logmsg += "Addional bytes:"+tohex(message[2:])
@@ -390,7 +421,6 @@ def parsedoorframe(operation,device,offset,value):
         msgval['OP']=op
         operation.append(op)
         msgval['LockedOut']=LockedOutState(int(message[1])).name
-        response.append(msgval)
         #logmsg += device + " " + operation + "-Keep pets out   : "+pDKeepPetsOutState[int(message[1])]
         #if int(message[0]) > 1:
         #    logmsg += "Addional bytes:"+tohex(message[2:])
@@ -399,7 +429,6 @@ def parsedoorframe(operation,device,offset,value):
         msgval['OP']=op
         operation.append(op)
         msgval['ChipCount']=message[1]
-        response.append(msgval)
         #logmsg += device + " " + operation + "-Prov Chip #     : "+(message[1])
         #if int(message[0]) > 1:
         #   logmsg += "Addional bytes:"+tohex(message[2:])
@@ -411,7 +440,6 @@ def parsedoorframe(operation,device,offset,value):
         chip=doorhextochip(value[4:]) #Calculate chip Number
         msgval['PetOffset']=pet
         msgval['Chip']=chip
-        response.append(msgval)
         #logmsg += device + " " + operation + "-Prov Chip ID   "+ str(pet) + " : Chip number " + chip
     elif offset == 519: #Curfew
         op="Curfew"
@@ -420,7 +448,6 @@ def parsedoorframe(operation,device,offset,value):
         msgval['CurfewState']=CurfewState(message[1]).name
         msgval['CurfewOn']=str(message[2]).zfill(2)+":"+str(message[3]).zfill(2)
         msgval['CurfewOff']=str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
-        response.append(msgval)
         #logmsg += device + " " + operation + "-Curfew          : "+pDCurfewState[message[1]] + " Lock: "+str(message[2]).zfill(2)+":"+str(message[3]).zfill(2) + " Unlock: "+str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
     elif offset >= 525 and offset <= 618: #Pet movement in or out
         op="PetMovement"
@@ -436,7 +463,6 @@ def parsedoorframe(operation,device,offset,value):
         msgval['Animal']=petmovement(device, pet)
         msgval['Direction']=direction
         operation.append("PetMovement")
-        response.append(msgval)
         #logmsg += device + " " + operation + "-Pet Movement    : " + petname + " went " + direction
  #       print("Pet " + str(pet) + " went " + message[3])
     elif offset == 621: #Unknown pet went outside
@@ -446,7 +472,6 @@ def parsedoorframe(operation,device,offset,value):
         msgval['PetOffset']="621"
         msgval['Animal']="Unknown Pet"
         msgval['Direction']="Outside"
-        response.append(msgval)
 #        logmsg += device + " " + operation + "-Pet Movement    : Unknown pet went outside " + value
     else:
         op="Other"
@@ -456,6 +481,7 @@ def parsedoorframe(operation,device,offset,value):
         #print("Other ", value)
         #logmsg += device + " " + operation + "-Other offset    : " + value
         #print("other offset" + logmsg)
+    response.append(msgval)
     response.append({"OP":operation})
     return response
 
@@ -485,22 +511,20 @@ def decodehubmqtt(topic,message):
         operation = "Status"
     response['operation'] = operation
 
+    resp = []
     #Device message
     if msgsplit[0] == "Hub": #Hub Offline Last Will message
-        resp = []
         resp.append({"Msg":message})
         resp.append({"OP":["Boot"]})
         response['message'] = resp
     elif msgsplit[2] == "Hub": #Hub online / boot message
-        resp = []
         resp.append({"Msg":" ".join(msgsplit[2:])})
         resp.append({"OP":["Boot"]})
         response['message'] = resp
     elif msgsplit[2] == "10": #Hub Uptime
-        resp = []
         msgval = {}
         msgval['Uptime']=str(int(msgsplit[3]))
-        msgval['TS']=msgsplit[4]+"-"+msgsplit[5]+":"+msgsplit[6]+":"+msgsplit[7]
+        msgval['TS']=msgsplit[4]+"-"+':'.join(format(int(x,16), '02d') for x in msgsplit[5:8])
         msgval['Reconnect']=msgsplit[9]
         resp.append({"Msg":msgval})
         resp.append({"OP":["Uptime"]})
@@ -510,8 +534,11 @@ def decodehubmqtt(topic,message):
         print("message 127")
         singleframe = bytearray.fromhex("".join(msgsplit[3:]))
         singleresponse = []
-        singleresponse.append(parseframe(device, singleframe))
-        singleresponse.append({"OP":[frameresponse['OP']]})
+        singleframeresponse = parseframe(device, singleframe)
+        singleresponse.append(singleframeresponse)
+        #Append the operation to a separate array we attach at the end.
+        op=singleframeresponse['OP']
+        singleresponse.append({"OP":[op]})
         response['message'] = singleresponse
     elif msgsplit[2] == "126": #Feeder frame status message
         #ba = bytearray([0x7E])
@@ -534,20 +561,24 @@ def decodehubmqtt(topic,message):
         msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
         #print("Message :", "".join(msgsplit[5:]))
         response['message'] = parsehubframe(operation,device, int(msgsplit[4]),"".join(msgsplit[5:]))
-    elif msgsplit[2] == "2": #Action message setting value to Pet Door
+    elif msgsplit[2] == "2" and device != "messages" : #Action message setting value to Pet Door
         #Action message doesn't have a counter
         if Print2Frame:
             print("2 Message : "+message)
         msgsplit[4] = hb(int(msgsplit[4])) #Convert length at offset 4 which is decimal into hex byte so we pass it as a hex string to parsedoorframe
-        response['message'] = parsedataframe(operation,device, int(msgsplit[3]),"".join(msgsplit[4:]))
+        response['message'] = parsedoorframe(operation,device, int(msgsplit[3]),"".join(msgsplit[4:]))
     elif msgsplit[2] == "8": #Action message setting value to Pet Door
-        resp = []
         resp.append({"Msg":message})
         resp.append({"OP":["8"]})
         response['message'] = resp
+    elif msgsplit[2] == "3": # Boot message - dump memory
+        resp.append({"Msg":"Dump to " + msgsplit[4]})
+        resp.append({"OP":["Dump"]})
+        response['message'] = resp
     else:
-        response['message'] = message
-        response['OP'] = "Error"
+        resp.append({"Msg":message})
+        resp.append({"OP":["ERROR"]})
+        response['message'] = resp
     return response
 
 def decodemiwi(timestamp,source,destination,framestr):
