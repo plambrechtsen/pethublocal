@@ -6,7 +6,9 @@ This is a work in progress and I am finally tying this all together as the pethu
 
 ## Step 1 - Create pethublocal.db database
 To begin with you need to export out the results from the Start API call into the pethublocal.db sqlite database that is used to reference the devices and pets. Reusing surepy: https://github.com/benleb/surepy so you need to make sure the library is installed:
+You need to be using Python 3.8 or higher to use mkpetlocaldb, i might consolidate this into a separate docker container to make this simpler.
 Update the `/PetHub/mkpetlocaldb.py` with your portal credentials in the user and password. Then run it.
+
 ```
 cd /pethublocal/PetHub
 pip3 install surepy
@@ -22,7 +24,7 @@ sqlite3 pethublocal.db
 The database, plus surepetpacket need to be copied  into the `docker/local/pethub` directory for the docker container pethub to work.
 ```
 cd docker/local/pethub
-cp ../../PetHub/* .
+cp ../../../PetHub/* .
 ```
 
 ## Step 3 - Update your local DNS
