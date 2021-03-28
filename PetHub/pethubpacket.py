@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
    Decode Sure Pet Packet
@@ -21,11 +21,11 @@
 """
 
 import binascii, struct, time, sys, sqlite3, json
-#import paho.mqtt.client as mqtt
 
 from datetime import datetime
 from operator import xor
 from pathlib import Path
+from enum import IntEnum
 
 #Debugging mesages
 PrintFrame = False #Print the before and after xor frame
@@ -35,14 +35,73 @@ Print127Frame = False #Debug the 2D / 127 feeder frame
 Print132Frame = False #Debug the 3C / 132 hub and door frame
 Print2Frame = False   #Debug the 2 frame
 
+class SureEnum(IntEnum):
+    """Sure base enum."""
+    def __str__(self) -> str:
+        return self.name.title()
+
+    @classmethod
+    def has_value(self, value):
+        return value in self._value2member_map_ 
+
+class EntityType(SureEnum):
+    """Sure Entity Types."""
+    PET           = 0   # artificial ID, not used by the Sure Petcare API
+    HUB           = 1   # Hub
+    REPEATER      = 2   # Repeater
+    PET_FLAP      = 3   # Pet Door Connect
+    FEEDER        = 4   # Microchip Pet Feeder Connect
+    PROGRAMMER    = 5   # Programmer
+    FEEDER_LITE   = 7   # Feeder Lite
+    CAT_FLAP      = 6   # Cat Flap Connect
+    FELAQUA       = 8   # Felaqua Connect
+    DEVICES       = 13  # artificial ID, Pet Flap + Cat Flap + Feeder = 3 + 6 + 4 = 13  ¯\_(ツ)_/¯
+
+class FeederState(SureEnum): # Feeder states
+    Animal_Open   = 0   # Animal Open Feeder
+    Animal_Closed = 1   # Animal Closed Feeder
+    Manual_Open   = 4   # Manually Opened Feeder
+    Manual_Closed = 5   # Manually Closed Feeder
+    Zero_Both     = 6   # Zero Feeder both scales
+    Zero_Left     = 7   # Zero Feeder left scale
+    Zero_Right    = 8   # Zero Feeder right scale
+
+class FeederCloseDelay(SureEnum): # Feeder Close Delay speed
+    Fast        = 0     # Fast delay
+    Normal      = 4000  # Normal delay
+    Slow        = 20000 # Slow delay
+
+class FeederBowls(SureEnum): # Feeder Close Delay speed
+    Single        = 1   # Fast close delay
+    Double        = 2   # Normal delay
+
+class LockState(SureEnum): # Lock State IDs.
+    UNLOCKED        = 0
+    LOCKED_IN       = 1
+    LOCKED_OUT      = 2
+    LOCKED_ALL      = 3
+    CURFEW          = 4
+    CURFEW_LOCKED   = -1
+    CURFEW_UNLOCKED = -2
+    CURFEW_UNKNOWN  = -3
+
+class LockedOutState(SureEnum): # Locked Out State for preventing animals coming in
+    NORMAL          = 2  # Allow pets in
+    LOCKED_IN       = 3  # Keep pets out
+
+class PetDirection(SureEnum): #
+    Out_61          = 0x61
+    Out_62          = 0x62
+
+class CurfewState(SureEnum): # Sure Petcare API State IDs.
+    DISABLED        = 1
+    ENABLED         = 2
+    STATE3          = 3
+
+
+
 #Feeder static values
-fStateArr={0:"Animal_open", 1:"Animal_shut", 4:"Manual_open", 5: "Manual_shut", 5: "ManualZeroScales", 6:"ZeroBoth", 7:"ZeroLeft", 8:"ZeroRight" } # Feeder State either open or closed
-fCloseDelayArr={0:"Fast", 4000:"Normal", 20000:"Slow"}                          # Feeder Close Delay speed
-fBowls={1:"Single", 2:"Double"}                                                 # Feeder number of bowls
-dDirection={0x61:"out-61", 0x62:"out-62" } # Direction
-pDLockState={0:"Unlocked", 1:"Keep pets in", 2:"Keep pets out", 3:"Lock both ways", 4:"Curfew Enabled lock" } # Pet Door Lock state
-pDKeepPetsOutState={2:"Allow pets in", 3:"Keep Pets outs" } # Pet Door Keep Pets Out state
-pDCurfewState={1:"Disabled",2:"Enabled "}
+pDCurfewState={1:"Disabled",2:"Enabled"}
 
 #Import xor key from pethubpacket.xorkey and make sure it is sane.
 xorfile=Path('pethubpacket.xorkey').read_text()
@@ -55,6 +114,7 @@ else:
 conn=sqlite3.connect('pethublocal.db')
 curs=conn.cursor()
 conn.row_factory = sqlite3.Row
+
 
 def feederchiptohex(chip):
     chiphex = ""
@@ -148,244 +208,230 @@ def petmovement(mac_address, deviceindex):
 def parsemultiframe(device, payload):
     response = []
     operation = []
-    multimsg = ""
-    count=0
     while len(payload) > 2:
-        if count>0:
-            multimsg += ","
-        multilen=payload[0]+1
-        curmessage=payload[1:multilen]
-        respmsg = parseframe(device, curmessage)
-        op=respmsg[0]
-        operation.append(op['OP'])
-        respmsg.remove(op)
-        response.append(respmsg)
+        subframelength=payload[0]+1
+        currentframe=payload[1:subframelength]
+        frameresponse = parseframe(device, currentframe)
+        response.append(frameresponse)
+        #Append the operation to a separate array we attach at the end.
+        op=frameresponse['OP']
+        operation.append(op)
         #Remove the parsed payload and loop again
-        del payload[0:multilen]
-        count += 1
+        del payload[0:subframelength]
     response.append({"OP":operation})
     return response
 
 #Parse Feeder Frame 
 #127 Frame aka 0x7F (127) or 0x2D (Wire value with TBC XOR) are a single payload vs 126 need parsemultiframe as they have multiple messages in a single frame
 def parseframe(device, value):
-    response = []
-    msg=""
-#   print("Parse : " + ''.join(format(x, '02x') for x in value))
-    if value[0] == 0x00:
-        #Send Acknowledge for data type
-        response.append({"OP":"ACK"})
-        response.append({"FF-00":"ACK-" + hb(value[8])})
-        msg = "FF-00: Acknowledge data type " + hb(value[8])
+    frameresponse = {}
+    msg = ""
+    if value[0] in [0x07, 0x0b, 0x0c, 0x10, 0x11, 0x16]: #Unknown messages
+        op=hb(value[0])
+        frameresponse["OP"]="Msg"+op
+        frameresponse["MSG"]=tohex(value[3:])
         if Print126Frame:
-            print(msg)
-        return response
-    elif value[0] == 0x01:
-        #Send query for data type
-        response.append({"OP":"Query"})
-        response.append("FF-01:QRY-" + hb(value[8]))
-        msg = "FF-01: Query data type " + hb(value[8])
+            print("FF-"+op+": **TODO** Msg " + tohex(value[3:]))
+    elif value[0] == 0x00: #Send Acknowledge for data type
+        frameresponse["OP"]="Ack"
+        frameresponse["MSG"]=hb(value[8])
         if Print126Frame:
-            print(msg)
-        return response
-    elif value[0] == 0x07:
-        #Send query for data type
-        response.append({"OP":"MSG07"})
-        response.append("FF-07:???-" + tohex(value[8:13]))
-        msg = "FF-07: **TODO** data type " + tohex(value[8:13])
+            print("FF-00:ACK-" + hb(value[8]))
+    elif value[0] == 0x01: #Send query for data type
+        frameresponse["OP"]="Query"
+        frameresponse["MSG"]=hb(value[8])
         if Print126Frame:
-            print(msg)
-        return response
-    elif value[0]==0x09:
-        response.append({"OP":"UpdateState"})
-        if Print126Frame:
-            print("FF-09: Update settings - ", hb(value[8]))
-        msg="FF-09: Update settings-"
+            print("FF-01:QRY-" + hb(value[8]))
+    elif value[0]==0x09: #Update state
+        frameresponse["OP"]="UpdateState"
         submessagevalue = b2is(value[9:12])
-        submessagevalueh = b2ih(value[9:12])
-        if value[8]==0x05:
-            msg += "TrainingMode=" + submessagevalue
-            response.append("FF-09:TRN-" + submessagevalue)
-        elif value[8]==0x0a:
-            msg += "SetLeftWeight=" + submessagevalueh
-            response.append("FF-09:SLW-" + submessagevalueh)
+        if value[8]==0x05: # Training mode
+            msg = {"MSG":"FF-09:TRN-" + submessagevalue} #Training Mode
+            frameresponse["SUBOP"]="Training"
+            frameresponse["MODE"]=submessagevalue
+        elif value[8]==0x0a: #Set Left Weight
+            msg += "FF-09:SLW-" + submessagevalue
+            frameresponse["SUBOP"]="SetLeftWeight"
+            frameresponse["WEIGHT"]=submessagevalue
         elif value[8]==0x0b:
-            msg += "SetRightWeight=" + submessagevalueh
-            response.append("FF-09:SRW-" + submessagevalueh)
+            msg += "SetRightWeight=" + submessagevalue
+            frameresponse["SUBOP"]="SetRightWeight"
+            frameresponse["WEIGHT"]=submessagevalue
         elif value[8]==0x0c:
-            msg += "SetFeederBowls=" + fBowls[int(submessagevalue)]
-            response.append("FF-09:SBC-" + fBowls[int(submessagevalue)])
+            msg += "FF-09:SBC-" + FeederBowls(int(submessagevalue)).name
+            frameresponse["SUBOP"]="SetBowls"
+            frameresponse["BOWLS"]=FeederBowls(int(submessagevalue)).name
         elif value[8]==0x0d:
-            msg += "CloseDelay=" + fCloseDelayArr[int(submessagevalue)]
-            response.append("FF-09:CLD-" + fCloseDelayArr[int(submessagevalue)])
+            msg += "FF-09:CLD-" + FeederCloseDelay(int(submessagevalue)).name
+            frameresponse["SUBOP"]="SetCloseDelay"
+            frameresponse["DELAY"]=FeederCloseDelay(int(submessagevalue)).name
         elif value[8]==0x12:
-            msg += "**TODO** 12=" + tohex(value[9:12])
-            response.append("FF-09:?12=" + tohex(value[9:12]))
+            msg += "FF-09:?12=" + tohex(value[9:12])
+            frameresponse["SUBOP"]="SetTODO"
+            frameresponse["MSG"]=tohex(value[9:12])
         elif value[8]==0x17:
-            msg += "ZeroLeft=" + submessagevalueh
-            response.append("FF-09:ZLW=" + submessagevalueh)
+            msg += "ZeroLeftWeight=" + submessagevalue
+            frameresponse["SUBOP"]="ZeroLeftWeight"
+            frameresponse["WEIGHT"]=submessagevalue
         elif value[8]==0x18:
-            msg += "ZeroRight=" + submessagevalueh
-            response.append("FF-09:ZRW=" + submessagevalueh)
+            msg += "ZeroRightWeight=" + submessagevalue
+            frameresponse["SUBOP"]="ZeroRigtWeight"
+            frameresponse["WEIGHT"]=submessagevalue
         elif value[8]==0x19:
-            msg += "**TODO** 19=" + tohex(value[9:12])
-            response.append("FF-09:?19=" + tohex(value[9:12]))
+            msg += "FF-09:?19=" + tohex(value[9:12])
+            frameresponse["SUBOP"]="SetTODO"
+            frameresponse["MSG"]=tohex(value[9:12])
         else:
-            msg += "**TODO** Unknown-" + tohex(value)
-            response.append("FF-09:???=" + tohex(value))
+            msg += "FF-09:???=" + tohex(value[9:12])
+            frameresponse["SUBOP"]="SetTODO"
+            frameresponse["MSG"]=tohex(value[9:12])
         if Print126Frame:
             print(msg)
-        return response
-    elif value[0] == 0x0b:
-        response.append({"OP":"Boot"})
-        msg = "FF-0b: **TODO** Boot 0b " + tohex(value[3:])
-        response.append("FF-0B:" + tohex(value[3:]))
-        if Print126Frame:
-            print(msg)
-        return response
-    elif value[0] == 0x0c:
-        response.append({"OP":"Boot"})
-        msg = "FF-0c: **TODO** Boot 0c " + tohex(value[3:])
-        response.append("FF-0C:" + tohex(value[3:]))
-        if Print126Frame:
-            print(msg)
-        return response
-    elif value[0] == 0x10:
-        response.append({"OP":"Boot"})
-        msg = "FF-10: **TODO** Boot 10 " + tohex(value[3:])
-        response.append("FF-10:" + tohex(value[3:]))
-        if Print126Frame:
-          print(msg)
-        return response
-    elif value[0] == 0x11:
-        response.append({"OP":"Boot"})
-        msg = "FF-11: **TODO** Msg 11 " + tohex(value[3:])
-        response.append("FF-11:" + tohex(value[3:]))
-        if Print126Frame:
-          print(msg)
-        return response
-    elif value[0] == 0x16:
-        response.append({"OP":"MSG16"})
-        msg = "FF-16: **TODO** Msg 16 " + tohex(value[3:])
-        response.append("FF-16:" + tohex(value[3:]))
-        if Print126Frame:
-          print(msg)
-        return response
     elif value[0] == 0x18:
-        response.append({"OP":"Feed"})
+        frameresponse["OP"]="Feed"
         #Hard code feeder states
-        if value[15] in fStateArr:
-            msgval = {}
+        if FeederState.has_value(value[15]):
             if value[15] in range(4, 8):
                 tag="Manual"
-                msgval["Animal"]="Manual"
+                frameresponse["Animal"]="Manual"
             else:
                 tag = feederhextochip(tohex(value[8:15]))
                 curs.execute('select name from pets where tag=(?)', ([tag]))
                 petval = curs.fetchone()
                 if (petval):
-                    msgval["Animal"]=petval[0]
+                    frameresponse["Animal"]=petval[0]
                 else:
-                    msgval["Animal"]=tag
-            action=fStateArr[value[15]]
+                    frameresponse["Animal"]=tag
+            action=FeederState(int(value[15])).name
             feederopenseconds=b2iu(value[16:17])
             scaleleftfrom=b2ih(value[19:23])
             scaleleftto=b2ih(value[23:27])
             scalerightfrom=b2ih(value[27:31])
             scalerightto=b2ih(value[31:35])
-            msgval["FA"]=action
-            msgval["FOS"]=feederopenseconds
-            msgval["SLF"]=scaleleftfrom #Or if single bowl
-            msgval["SLT"]=scaleleftto
-            msgval["SRF"]=scalerightfrom
-            msgval["SRT"]=scalerightto
-
+            frameresponse["FA"]=action
+            frameresponse["FOS"]=feederopenseconds
+            frameresponse["SLF"]=scaleleftfrom #Or if single bowl
+            frameresponse["SLT"]=scaleleftto
+            frameresponse["SRF"]=scalerightfrom
+            frameresponse["SRT"]=scalerightto
             #Return bowl count
             curs.execute('select bowltype from feeders where mac_address=(?)', ([device]))
             bowlval = curs.fetchone()
             if (bowlval):
-                msgval["BC"]=bowlval[0]
+                frameresponse["BC"]=bowlval[0]
             else:
-                msgval["BC"]=1
-            response.append(msgval)
-            print("FF-18: Feeder door change - chip="+tag+",action="+fStateArr[value[15]]+',feederopenseconds='+ b2iu(value[16:17])+',scaleleftfrom='+b2ih(value[19:23])+',scaleleftto='+b2ih(value[23:27])+',scalerightfrom='+b2ih(value[27:31])+',scalerightto='+b2ih(value[31:35]))
-            return response
+                frameresponse["BC"]=1
+            #response.append(frameresponse)
+            if Print126Frame:
+                print("FF-18: Feeder door change - chip="+tag+",action="+action+',feederopenseconds='+ b2iu(value[16:17])+',scaleleftfrom='+b2ih(value[19:23])+',scaleleftto='+b2ih(value[23:27])+',scalerightfrom='+b2ih(value[27:31])+',scalerightto='+b2ih(value[31:35]))
         else:
-            print("FF-18: Feeder door change - **TODO** unknown state " + hb(value[15]))
-            response.append("FF-18:Unknown" + hb(value[15]))
-            return respone
+            frameresponse["OP"]="Unknown"
+            frameresponse["MSG"]=tohex(value)
     else:
-        response.append("FF-??:"+tohex(value))
-        msg = "FF-**TODO** Unknown - " + tohex(value)
-        print(msg)
-        return response
+        frameresponse["OP"]="Unknown"
+        frameresponse["MSG"]=tohex(value)
+    return frameresponse
 
-#Parse Pet Door Frames aka 132's sent to the pet door
-def parsedataframe(operation,device,offset,value):
+#Parse Hub Frames aka 132's sent to the pet door
+def parsehubframe(operation,device,offset,value):
     response = []
     operation = []
+    message=bytearray.fromhex(value)
+    logmsg=""
+    if offset >= 0:
+        msgval = {}
+        msgval['Msg']=value
+        operation.append("MSG")
+        response.append(msgval)
+    else:
+        msgval = {}
+        msgval['Msg']=value
+        operation.append("MSG")
+        response.append(msgval)
+    response.append({"OP":operation})
+    return response
 
+#Parse Pet Door Frames aka 132's sent to the pet door
+def parsedoorframe(operation,device,offset,value):
+    response = []
+    operation = []
+    msgval = {}
     message=bytearray.fromhex(value)
     if PrintFrameDbg:
-        print("Operation: " + operation + " -offset- " + str(offset) + " -value- " + value)
+        print("Operation: " + operation + " device " + device + " offset " + str(offset) + " -value- " + value)
     logmsg=""
+    if offset == 33: #Battery and Time
+        op="BatteryandTime"
+        msgval['OP']=op
+        operation.append(op)
+        msgval['Battery']=int(message[1])
+        msgval['Time']=int(message[2]) +":"+ int(message[3])
+        response.append(msgval)
     if offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
-        logmsg += device + " " + operation + "-Time    : "+ int(message[1]) +":"+ int(message[2])
-        msgval = {}
+        op="SetTime"
+        msgval['OP']=op
+        operation.append(op)
         msgval['Time']=int(message[1]) +":"+ int(message[2])
-        operation.append("SetTime")
         response.append(msgval)
-        if int(message[0]) > 2:
-            logmsg += "Addional bytes:"+tohex(message[3:])
+        #logmsg += device + " " + operation + "-Time    : "+ int(message[1]) +":"+ int(message[2])
+        #if int(message[0]) > 2:
+        #    logmsg += "Addional bytes:"+tohex(message[3:])
     if offset == 36: #Lock state
-        logmsg += device + " " + operation + "-Lockstate       : "+ pDLockState[int(message[1])]
-        msgval = {}
-        msgval['Lock']=pDLockState[int(message[1])]
-        operation.append("LockState")
+        op="LockState"
+        msgval['OP']=op
+        operation.append(op)
+        msgval['Lock']=LockState(int(message[1])).name
         response.append(msgval)
-        if int(message[0]) > 1:
-            logmsg += "Addional bytes:"+tohex(message[2:])
+        #logmsg += device + " " + operation + "-Lockstate       : "+ pDLockState[int(message[1])]
+        #if int(message[0]) > 1:
+        #    logmsg += "Addional bytes:"+tohex(message[2:])
     elif offset == 40: #Keep pets out allow incoming state
-        logmsg += device + " " + operation + "-Keep pets out   : "+pDKeepPetsOutState[int(message[1])]
-        msgval = {}
-        msgval['PetsOut']=pDKeepPetsOutState[int(message[1])]
-        operation.append("KeepPetsOut")
+        op="LockedOutState"
+        msgval['OP']=op
+        operation.append(op)
+        msgval['LockedOut']=LockedOutState(int(message[1])).name
         response.append(msgval)
-        if int(message[0]) > 1:
-            logmsg += "Addional bytes:"+tohex(message[2:])
+        #logmsg += device + " " + operation + "-Keep pets out   : "+pDKeepPetsOutState[int(message[1])]
+        #if int(message[0]) > 1:
+        #    logmsg += "Addional bytes:"+tohex(message[2:])
     elif offset == 59: #Provisioned Chip Count
-        logmsg += device + " " + operation + "-Prov Chip #     : "+(message[1])
-        msgval = {}
+        op="PrivChipCount"
+        msgval['OP']=op
+        operation.append(op)
         msgval['ChipCount']=message[1]
-        operation.append("ProvChipCount")
         response.append(msgval)
-        if int(message[0]) > 1:
-            logmsg += "Addional bytes:"+tohex(message[2:])
+        #logmsg += device + " " + operation + "-Prov Chip #     : "+(message[1])
+        #if int(message[0]) > 1:
+        #   logmsg += "Addional bytes:"+tohex(message[2:])
     elif offset >= 91 and offset <= 308: #Provisioned chips
+        op="ProvChip"
+        msgval['OP']=op
+        operation.append(op)
         pet=round((int(offset)-84)/7) #Calculate the pet number
         chip=doorhextochip(value[4:]) #Calculate chip Number
-        msgval = {}
-        msgval['Chip']=chip
         msgval['PetOffset']=pet
-        operation.append("ProvChip")
+        msgval['Chip']=chip
         response.append(msgval)
-        logmsg += device + " " + operation + "-Prov Chip ID   "+ str(pet) + " : Chip number " + chip
+        #logmsg += device + " " + operation + "-Prov Chip ID   "+ str(pet) + " : Chip number " + chip
     elif offset == 519: #Curfew
-        logmsg += device + " " + operation + "-Curfew          : "+pDCurfewState[message[1]] + " Lock: "+str(message[2]).zfill(2)+":"+str(message[3]).zfill(2) + " Unlock: "+str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
-        msgval = {}
-        msgval['CurfewState']=pDCurfewState[message[1]]
+        op="Curfew"
+        msgval['OP']=op
+        operation.append(op)
+        msgval['CurfewState']=CurfewState(message[1]).name
         msgval['CurfewOn']=str(message[2]).zfill(2)+":"+str(message[3]).zfill(2)
         msgval['CurfewOff']=str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
-        operation.append("Curfew")
         response.append(msgval)
+        #logmsg += device + " " + operation + "-Curfew          : "+pDCurfewState[message[1]] + " Lock: "+str(message[2]).zfill(2)+":"+str(message[3]).zfill(2) + " Unlock: "+str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
     elif offset >= 525 and offset <= 618: #Pet movement in or out
+        op="PetMovement"
+        msgval['OP']=op
+        operation.append(op)
         pet=round((int(offset)-522)/3)-1 #Calculate the pet number
         petname = petmovement(device, pet)
-        if message[3] in dDirection:
-            direction = dDirection[message[3]]
+        if PetDirection.has_value(message[3]):
+            direction = PetDirection(message[3]).name
         else:
             direction = "Other " + hb(message[3])
-        msgval = {}
         msgval['PetOffset']=pet
         msgval['Animal']=petmovement(device, pet)
         msgval['Direction']=direction
@@ -394,17 +440,22 @@ def parsedataframe(operation,device,offset,value):
         #logmsg += device + " " + operation + "-Pet Movement    : " + petname + " went " + direction
  #       print("Pet " + str(pet) + " went " + message[3])
     elif offset == 621: #Unknown pet went outside
-        msgval = {}
+        op="PetMovement"
+        msgval['OP']=op
+        operation.append(op)
         msgval['PetOffset']="621"
         msgval['Animal']="Unknown Pet"
         msgval['Direction']="Outside"
-        operation.append("PetMovement")
         response.append(msgval)
-        logmsg += device + " " + operation + "-Pet Movement    : Unknown pet went outside " + value
+#        logmsg += device + " " + operation + "-Pet Movement    : Unknown pet went outside " + value
     else:
-        logmsg += device + " " + operation + "-Other offset    : " + str(offset) + " len " + str(int(message[0])) + " msg " + tohex(message[1:])
+        op="Other"
+        msgval['OP']=op
+        operation.append(op)
+        msgval['MSG']=value
+        #print("Other ", value)
+        #logmsg += device + " " + operation + "-Other offset    : " + value
         #print("other offset" + logmsg)
-
     response.append({"OP":operation})
     return response
 
@@ -434,39 +485,69 @@ def decodehubmqtt(topic,message):
         operation = "Status"
     response['operation'] = operation
 
-
-    print(message)
     #Device message
-    if msgsplit[2] == "127": #Feeder frame sent/control message
+    if msgsplit[0] == "Hub": #Hub Offline Last Will message
+        resp = []
+        resp.append({"Msg":message})
+        resp.append({"OP":["Boot"]})
+        response['message'] = resp
+    elif msgsplit[2] == "Hub": #Hub online / boot message
+        resp = []
+        resp.append({"Msg":" ".join(msgsplit[2:])})
+        resp.append({"OP":["Boot"]})
+        response['message'] = resp
+    elif msgsplit[2] == "10": #Hub Uptime
+        resp = []
+        msgval = {}
+        msgval['Uptime']=str(int(msgsplit[3]))
+        msgval['TS']=msgsplit[4]+"-"+msgsplit[5]+":"+msgsplit[6]+":"+msgsplit[7]
+        msgval['Reconnect']=msgsplit[9]
+        resp.append({"Msg":msgval})
+        resp.append({"OP":["Uptime"]})
+        response['message'] = resp
+    elif msgsplit[2] == "127": #Feeder frame sent/control message
         #ba = bytearray([0x7F])
         print("message 127")
-        ba = bytearray.fromhex("".join(msgsplit[3:]))
-        respmsg = parseframe(device,ba)
-        operation = []
-        op=respmsg[0]
-        operation.append(op['OP'])
-        respmsg.remove(op)
-        resp = []
-        resp.append(respmsg)
-        resp.append({"OP":operation})
-        response['message'] = resp
+        singleframe = bytearray.fromhex("".join(msgsplit[3:]))
+        singleresponse = []
+        singleresponse.append(parseframe(device, singleframe))
+        singleresponse.append({"OP":[frameresponse['OP']]})
+        response['message'] = singleresponse
     elif msgsplit[2] == "126": #Feeder frame status message
         #ba = bytearray([0x7E])
-        ba = bytearray.fromhex("".join(msgsplit[3:]))
-        response['message'] = parsemultiframe(device,ba)
-
-    elif msgsplit[2] == "132": #Pet Door Status
+        #print("message 127")
+        multiframe = bytearray.fromhex("".join(msgsplit[3:]))
+        response['message'] = parsemultiframe(device,multiframe)
+        #print(response['message'])
+    elif msgsplit[2] == "132" and device != "messages" : #Pet Door Status
         #Status message has a counter at offset 4 we can ignore:
         if Print132Frame:
             print("132 Message : "+message)
         msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
-        response['message'] = parsedataframe(operation,device, int(msgsplit[4]),"".join(msgsplit[5:]))
+        #print("Message :", "".join(msgsplit[5:]))
+        response['message'] = parsedoorframe(operation,device, int(msgsplit[4]),"".join(msgsplit[5:]))
+        
+    elif msgsplit[2] == "132" and device == "messages": #Hub Frame
+        #Status message has a counter at offset 4 we can ignore:
+        if Print132Frame:
+            print("132 Message : "+message)
+        msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
+        #print("Message :", "".join(msgsplit[5:]))
+        response['message'] = parsehubframe(operation,device, int(msgsplit[4]),"".join(msgsplit[5:]))
     elif msgsplit[2] == "2": #Action message setting value to Pet Door
         #Action message doesn't have a counter
         if Print2Frame:
             print("2 Message : "+message)
         msgsplit[4] = hb(int(msgsplit[4])) #Convert length at offset 4 which is decimal into hex byte so we pass it as a hex string to parsedoorframe
         response['message'] = parsedataframe(operation,device, int(msgsplit[3]),"".join(msgsplit[4:]))
+    elif msgsplit[2] == "8": #Action message setting value to Pet Door
+        resp = []
+        resp.append({"Msg":message})
+        resp.append({"OP":["8"]})
+        response['message'] = resp
+    else:
+        response['message'] = message
+        response['OP'] = "Error"
     return response
 
 def decodemiwi(timestamp,source,destination,framestr):
