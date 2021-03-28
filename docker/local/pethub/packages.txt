@@ -1,5 +1,4 @@
-logging
+emit
+wheel
 asyncio
 hbmqtt
-wheel
-emit
