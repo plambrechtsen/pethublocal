@@ -94,6 +94,7 @@ class PetDirection(SureEnum): #
     In_61           = 0x61
     Out_62          = 0x62
     In_81           = 0x81
+    UnknownPet      = 0xd3
 
 class CurfewState(SureEnum): # Sure Petcare API State IDs.
     DISABLED        = 1
@@ -114,7 +115,6 @@ else:
 conn=sqlite3.connect('pethublocal.db')
 curs=conn.cursor()
 conn.row_factory = sqlite3.Row
-
 
 def feederchiptohex(chip):
     chiphex = ""
@@ -192,7 +192,7 @@ def tohex(ba):
 def hb(hexbyte):
     return format(hexbyte,'02x')
     
-def petmovement(mac_address, deviceindex):
+def petnamebydevice(mac_address, deviceindex):
     curs.execute('select tag from tagmap where mac_address=(?) and deviceindex=(?)', (mac_address, deviceindex))
     tagval = curs.fetchone()
     if (tagval):
@@ -449,7 +449,7 @@ def parsedoorframe(operation,device,offset,value):
         msgval['CurfewOn']=str(message[2]).zfill(2)+":"+str(message[3]).zfill(2)
         msgval['CurfewOff']=str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
         #logmsg += device + " " + operation + "-Curfew          : "+pDCurfewState[message[1]] + " Lock: "+str(message[2]).zfill(2)+":"+str(message[3]).zfill(2) + " Unlock: "+str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
-    elif offset >= 525 and offset <= 618: #Pet movement in or out
+    elif offset >= 525 and offset <= 618: #Pet movement state in or out
         op="PetMovement"
         msgval['OP']=op
         operation.append(op)
@@ -460,11 +460,9 @@ def parsedoorframe(operation,device,offset,value):
         else:
             direction = "Other " + hb(message[3])
         msgval['PetOffset']=pet
-        msgval['Animal']=petmovement(device, pet)
+        msgval['Animal']=petnamebydevice(device, pet)
         msgval['Direction']=direction
         operation.append("PetMovement")
-        #logmsg += device + " " + operation + "-Pet Movement    : " + petname + " went " + direction
- #       print("Pet " + str(pet) + " went " + message[3])
     elif offset == 621: #Unknown pet went outside
         op="PetMovement"
         msgval['OP']=op
@@ -626,16 +624,50 @@ def decodemiwi(timestamp,source,destination,framestr):
         logmsg = "Corrupt Frame " + tohex(frame)
     return "Received frame at: " + timestamp + " from: " + sourcemac + " to: " + destinationmac + " " + logmsg
 
-def buildmqtt(type,value):
+def buildmqttsendmessage(value):
 #  ts = str(binascii.hexlify(struct.pack('>I', round(datetime.utcnow().timestamp()))),'ascii')
   ts = hex(round(datetime.utcnow().timestamp()))[2:]
-  return ts + " 1000 "+type+" " + " ".join(value[i:i+2] for i in range(0, len(value), 2))
+  return ts + " 1000 " + value
 
 #Generate message
-def generatemessage(msgtype,msg):
-    if type=="hub":
-        print("TBC")
-    elif type=="feeder":
+def generatemessage(devicetype,operation):
+    if devicetype=="hub":
+        if operation == "dumpstate": #Dump all memory registers from 0 to 205
+            msgstr = "3 0 205"
+            return msgstr
+        elif operation == "flashleds": #Flash the leds 3 times
+            msgstr = "2 18 1 80"
+            return msgstr
+        elif operation == "flashleds2": #Flash the leds 2 times
+            msgstr = "2 18 1 81"
+            return msgstr
+        elif operation == "earsoff":   #Turn ear lights off
+            msgstr = "2 18 1 04"
+            return msgstr
+        elif operation == "earsdimmed": #Flash the leds 3 times
+            msgstr = "2 18 1 00"
+            return msgstr
+        elif operation == "earsbright": #Flash the leds 3 times
+            msgstr = "2 18 1 01"
+            return msgstr
+        elif operation == "adoptdisable": #Disable adoption mode
+            msgstr = "2 15 1 02"
+            return msgstr
+        elif operation == "adoptdisable": #Enable adoption mode to adopt hub or feeders.
+            msgstr = "2 15 1 00"
+            return msgstr
+    elif devicetype=="petdoor":
+        if operation == "dumpstate": #Dump all memory registers from 0 to 630
+            msgstr = "3 0 630"
+            return msgstr
+        if operation == "setlockstate": #Lock state
+            msgstr = "2 36 1 XX"
+            return msgstr
+        if operation == "setcurfew": #Curfew, EE = Enable State, FF = From hour, TT = To hure
+            msgstr = "2 519 6 EE FF FF TT TT 00"
+            return msgstr
+
+    elif devicetype=="feeder":
         if operation == "ackfeederstatedoor":
         #Acknowledge the 18 door state.
             msgstr = "0000ZZ00TTTTTTTT180000"
@@ -765,32 +797,3 @@ def generatemessage(msgtype,msg):
 
     else:
         print("Unknown type")
-
-
-
-
-
-'''
-        #else:
-        #    print("?? Request: " + tohex(payload))
-        #    return "?? Request: " + tohex(payload)
-#            devid = sourcemac + '-' + b2ib(payload[0:2])
-#            pbdc = conn.cursor()
-#            pbdc.execute('select name from doorpetmapping left join animals using (petid) where devicepetid=(?)', ([devid]))
-#            pbd = pbdc.fetchone()
-#            if (pbd):
-    #            #I'm not sure if this is right or not, but there are very weird values sometimes for in / out
-    #            direction=list(hb(payload[6]))
-#                msg = pbd[0] + " went " + hb(payload[6])
-    #            msg = pbd[0] + " went " + fDirection[int(direction[1])] + " in " + direction[0] + " seconds " + hb(payload[6])
-#                logmsg += msg
-#                if Print132Frame:
-#                    print(msg)
-#            else:
-#                logmsg += tohex(payload)
-    #                return pbd[0]
-    #            else:
-    #                pbdc.execute("INSERT OR IGNORE INTO doorpetmapping values((?), (?), (?)) ", ("0", device, int(id)))
-    #                conn.commit()
-    #                return "Unknown"
-'''
