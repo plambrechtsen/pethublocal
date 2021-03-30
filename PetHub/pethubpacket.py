@@ -89,23 +89,38 @@ class LockedOutState(SureEnum): # Locked Out State for preventing animals coming
     NORMAL          = 2  # Allow pets in
     LOCKED_IN       = 3  # Keep pets out
 
-class PetDirection(SureEnum): #
-    LookedOut_40    = 0x40
-    In_61           = 0x61
-    Out_62          = 0x62
-    In_81           = 0x81
-    UnknownPet      = 0xd3
+class PetDoorDirection(SureEnum): # Pet Movement on Pet Door coming in or out or looked in or unknown animal left
+    LooksIn_40      = 0x40 #This happens if the pet comes up to the door from outside, puts head in and unlocks the door but doesn't come in.
+    In_61           = 0x61 #Normal ingress
+    Out_62          = 0x62 #Normal egress
+    In_81           = 0x81 #Ingress if the pet door thought the pet was already inside
+    UnknownPet      = 0xd3 #This along with pet 621 is when the pet leaves too quickly for the pet door to read it leaving
 
 class CurfewState(SureEnum): # Sure Petcare API State IDs.
     DISABLED        = 1
     ENABLED         = 2
     STATE3          = 3
 
+class HubLeds(SureEnum):   # Sure Petcare API LED State offset 0x18
+    DIMMED          = 0    #Dimmed Ears
+    BRIGHT          = 1    #Bright Ears
+    OFF             = 4    #Ears Off
+    FLASH3          = 0x80 #Flash Leds 3 times
+    FLASH2          = 0x81 #Flash Leds 2 times
+
+class HubAdoption(SureEnum): #Sure Petcare adoption mode 0x15
+    ENABLE          = 0      #Bright Ears
+    DISABLE         = 2      #Dimmed Ears
+
 class ProvChipState(SureEnum): # Chip Provisioned State
     ENABLED         = 0
     DISABLED        = 1
     LOCK            = 2
 
+class CatFlapDirection(SureEnum): # Pet Movement on Cat Flap coming in or going out.
+    Out             = 0
+    In              = 1
+    Status          = 2
 
 #Import xor key from pethubpacket.xorkey and make sure it is sane.
 xorfile=Path('pethubpacket.xorkey').read_text()
@@ -210,6 +225,7 @@ def petnamebydevice(mac_address, deviceindex):
         petname="Unknown"
     return petname
 
+#Parse Feeder and Cat Flap Multi-Frame
 #126 Frames aka 0x7E (126) or 0x2A (Wire value with TBC XOR) can have multiple messages, so need to loop until you get to the end
 def parsemultiframe(device, payload):
     response = []
@@ -227,7 +243,7 @@ def parsemultiframe(device, payload):
     response.append({"OP":operation})
     return response
 
-#Parse Feeder Frame 
+#Parse Feeder and Cat Flap Frame 
 #127 Frame aka 0x7F (127) or 0x2D (Wire value with TBC XOR) are a single payload vs 126 need parsemultiframe as they have multiple messages in a single frame
 def parseframe(device, value):
     frameresponse = {}
@@ -303,6 +319,20 @@ def parseframe(device, value):
             frameresponse["Animal"]=tag
         frameresponse["OP"]="Chip"
         frameresponse["ChipState"]=ProvChipState(value[17]).name
+        frameresponse["MSG"]=tohex(value)
+    elif value[0] == 0x13: #Pet Movement through cat door
+        tag = feederhextochip(tohex(value[18:25]))
+        curs.execute('select name from pets where tag=(?)', ([tag]))
+        petval = curs.fetchone()
+        if (petval):
+            frameresponse["Animal"]=petval[0]
+        else:
+            frameresponse["Animal"]=tag
+        frameresponse["Direction"]=CatFlapDirection(value[17]).name
+        if frameresponse["Direction"] != "Status":
+            frameresponse["OP"]="PetMovement"
+        else:
+            frameresponse["OP"]="PetMovementStatus"
         frameresponse["MSG"]=tohex(value)
     elif value[0] == 0x18:
         frameresponse["OP"]="Feed"
@@ -469,8 +499,8 @@ def parsedoorframe(operation,device,offset,value):
         operation.append(op)
         pet=round((int(offset)-522)/3)-1 #Calculate the pet number
         petname = petmovement(device, pet)
-        if PetDirection.has_value(message[3]):
-            direction = PetDirection(message[3]).name
+        if PetDoorDirection.has_value(message[3]):
+            direction = PetDoorDirection(message[3]).name
         else:
             direction = "Other " + hb(message[3])
         msgval['PetOffset']=pet
@@ -645,30 +675,31 @@ def buildmqttsendmessage(value):
 #Generate message
 def generatemessage(devicetype,operation):
     if devicetype=="hub":
-        if operation == "dumpstate": #Dump all memory registers from 0 to 205
+        if operation == "dumpstate":      #Dump all memory registers from 0 to 205
             msgstr = "3 0 205"
             return msgstr
-        elif operation == "flashleds": #Flash the leds 3 times
+        elif operation == "flashleds":    #Flash the ears 3 times
             msgstr = "2 18 1 80"
             return msgstr
-        elif operation == "flashleds2": #Flash the leds 2 times
+        elif operation == "flashleds2":   #Flash the ears 2 times
             msgstr = "2 18 1 81"
             return msgstr
-        elif operation == "earsoff":   #Turn ear lights off
+        elif operation == "earsoff":      #Turn ear lights off
             msgstr = "2 18 1 04"
             return msgstr
-        elif operation == "earsdimmed": #Flash the leds 3 times
+        elif operation == "earsdimmed":   #Ears dimmed
             msgstr = "2 18 1 00"
             return msgstr
-        elif operation == "earsbright": #Flash the leds 3 times
+        elif operation == "earsbright":   #Ears bright
             msgstr = "2 18 1 01"
             return msgstr
         elif operation == "adoptdisable": #Disable adoption mode
             msgstr = "2 15 1 02"
             return msgstr
-        elif operation == "adoptdisable": #Enable adoption mode to adopt hub or feeders.
+        elif operation == "adoptdisable": #Enable adoption mode to adopt devices.
             msgstr = "2 15 1 00"
             return msgstr
+
     elif devicetype=="petdoor":
         if operation == "dumpstate": #Dump all memory registers from 0 to 630
             msgstr = "3 0 630"
@@ -676,7 +707,10 @@ def generatemessage(devicetype,operation):
         if operation == "setlockstate": #Lock state
             msgstr = "2 36 1 XX"
             return msgstr
-        if operation == "setcurfew": #Curfew, EE = Enable State, FF = From hour, TT = To hure
+        if operation == "setlockstate2": #Lock state2
+            msgstr = "2 39 1 XX"
+            return msgstr
+        if operation == "setcurfew": #Curfew, EE = Enable State, FF = From HH:MM, TT = To HH:MM
             msgstr = "2 519 6 EE FF FF TT TT 00"
             return msgstr
 
