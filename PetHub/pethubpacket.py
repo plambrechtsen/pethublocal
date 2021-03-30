@@ -104,6 +104,7 @@ class CurfewState(SureEnum): # Sure Petcare API State IDs.
 class ProvChipState(SureEnum): # Chip Provisioned State
     ENABLED         = 0
     DISABLED        = 1
+    LOCK            = 2
 
 
 #Import xor key from pethubpacket.xorkey and make sure it is sane.
