@@ -28,10 +28,10 @@ from pathlib import Path
 from enum import IntEnum
 
 #Debugging mesages
-PrintFrame = False #Print the before and after xor frame
+PrintFrame = True #Print the before and after xor frame
 PrintFrameDbg = False #Print the frame headers
-Print126Frame = False #Debug the 2A / 126 feeder frame
-Print127Frame = False #Debug the 2D / 127 feeder frame
+Print126Frame = True #Debug the 2A / 126 feeder frame
+Print127Frame = True #Debug the 2D / 127 feeder frame
 Print132Frame = False #Debug the 3C / 132 hub and door frame
 Print2Frame = False   #Debug the 2 frame
 
@@ -101,8 +101,10 @@ class CurfewState(SureEnum): # Sure Petcare API State IDs.
     ENABLED         = 2
     STATE3          = 3
 
-#Feeder static values
-pDCurfewState={1:"Disabled",2:"Enabled"}
+class ProvChipState(SureEnum): # Chip Provisioned State
+    ENABLED         = 0
+    DISABLED        = 1
+
 
 #Import xor key from pethubpacket.xorkey and make sure it is sane.
 xorfile=Path('pethubpacket.xorkey').read_text()
@@ -229,7 +231,7 @@ def parsemultiframe(device, payload):
 def parseframe(device, value):
     frameresponse = {}
     msg = ""
-    if value[0] in [0x07, 0x0b, 0x0c, 0x10, 0x11, 0x16]: #Unknown messages
+    if value[0] in [0x07, 0x0b, 0x0c, 0x10, 0x16]: #Unknown messages
         op=hb(value[0])
         frameresponse["OP"]="Msg"+op
         frameresponse["MSG"]=tohex(value[3:])
@@ -245,7 +247,7 @@ def parseframe(device, value):
         frameresponse["MSG"]=hb(value[8])
         if Print126Frame:
             print("FF-01:QRY-" + hb(value[8]))
-    elif value[0]==0x09: #Update state
+    elif value[0] == 0x09: #Update state
         frameresponse["OP"]="UpdateState"
         submessagevalue = b2is(value[9:12])
         if value[8]==0x05: # Training mode
@@ -290,6 +292,17 @@ def parseframe(device, value):
             frameresponse["MSG"]=tohex(value[9:12])
         if Print126Frame:
             print(msg)
+    elif value[0] == 0x11: #Provision chip to device
+        tag = feederhextochip(tohex(value[8:15]))
+        curs.execute('select name from pets where tag=(?)', ([tag]))
+        petval = curs.fetchone()
+        if (petval):
+            frameresponse["Animal"]=petval[0]
+        else:
+            frameresponse["Animal"]=tag
+        frameresponse["OP"]="Chip"
+        frameresponse["ChipState"]=ProvChipState(value[17]).name
+        frameresponse["MSG"]=tohex(value)
     elif value[0] == 0x18:
         frameresponse["OP"]="Feed"
         #Hard code feeder states
@@ -551,7 +564,6 @@ def decodehubmqtt(topic,message):
         msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
         #print("Message :", "".join(msgsplit[5:]))
         response['message'] = parsedoorframe(operation,device, int(msgsplit[4]),"".join(msgsplit[5:]))
-        
     elif msgsplit[2] == "132" and device == "messages": #Hub Frame
         #Status message has a counter at offset 4 we can ignore:
         if Print132Frame:
@@ -593,33 +605,33 @@ def decodemiwi(timestamp,source,destination,framestr):
         print("Packet:" + tohex(framexor))
         print("Dexor :" + tohex(frame))
     if len(frame) > 8:
+        response = []
         if PrintFrameDbg:
             print("Frame Type       :", hb(frame[2]))
             print("Frame Length     :", len(frame))
             print("Frame Length Val :", frame[4])
-        payload=frame[6:]
+        payload=frame[6:frame[4]+1]
         logmsg=""
-        if frame[2] == 0x2a: #126 Message Feeder to Hub Message
-            logmsg="2A: "
+        if frame[2] == 0x2a: #126 Message Feeder to Hub Message which will be a multiframe
             if Print126Frame:
-                print("FF-126 Request: " + tohex(payload))
-            resmessage=parsemultiframe(payload)
-            if len(resmessage) > 0 and Print127Frame:
-                print("126 Resp :", resmessage)
-        elif frame[2] == 0x2d: #127 Message Hub to Feeder control message
-            logmsg="2D: "
+                print("FF-2A Request : " + sourcemac + " " + tohex(payload))
+            response=parsemultiframe(sourcemac,payload)
+            if len(response) > 0 and Print127Frame:
+                print("FF-2A Response: ", response)
+        elif frame[2] == 0x2d: #127 Message Hub to Feeder or Cat Door control message which will be a single frame
             if Print127Frame:
-                print("FF-127 Request: " + tohex(payload))
-            resmessage=parseframe(payload)
-            logmsg += resmessage
-            if len(resmessage) > 0 and Print127Frame:
-                print("Frame 2D message :", resmessage)
+                print("FF-2D Request : " + sourcemac + " " + tohex(payload))
+            singleframeresponse = parseframe(sourcemac, payload)
+            response.append(singleframeresponse)
+            op=singleframeresponse['OP']
+            response.append({"OP":[op]})
+            if len(response) > 0 and Print127Frame:
+                print("FF-2D Response: ", response)
         elif frame[2] == 0x3c: #Pet door frame
-            logmsg="132: " + tohex(payload)
             if Print132Frame:
                 print("DF-132 Request: " + tohex(payload))
-            print(parsedataframe('Status',source,int(b2ib(payload[0:2])),tohex(payload[2:-1])))
-                
+            print(parsedoorframe('Status',sourcemac,int(b2ib(payload[0:2])),tohex(payload[2:-1])))
+        return response
     else:
         logmsg = "Corrupt Frame " + tohex(frame)
     return "Received frame at: " + timestamp + " from: " + sourcemac + " to: " + destinationmac + " " + logmsg
@@ -667,7 +679,7 @@ def generatemessage(devicetype,operation):
             msgstr = "2 519 6 EE FF FF TT TT 00"
             return msgstr
 
-    elif devicetype=="feeder":
+    elif devicetype=="feeder": #Message 127 to the feeder or cat door
         if operation == "ackfeederstatedoor":
         #Acknowledge the 18 door state.
             msgstr = "0000ZZ00TTTTTTTT180000"
@@ -779,7 +791,12 @@ def generatemessage(devicetype,operation):
             return msgstr
         elif operation == "zerobothscales":
             #Zero the both scales, first need to check feeder is open via Message 18 state 
-            msgstr = "0d00ZZ002601e354001900000003000000000103"
+            msgstr = "0d00ZZ00TTTTTTTT001900000003000000000103"
+            msgstr = msgstr.replace('ZZ', format(counter,'02x'))
+            return msgstr
+        elif operation == "chipprovision":
+            #Provision chip, CCCCCCCCCCCCCC is the chip in hex format using feederhextochip and SS is state 00 = disabled, 01 = enabled.
+            msgstr = "1100ZZ00TTTTTTTTCCCCCCCCCCCCCC0200SS"
             msgstr = msgstr.replace('ZZ', format(counter,'02x'))
             return msgstr
         else:
@@ -794,6 +811,5 @@ def generatemessage(devicetype,operation):
             #Set the time, packet 36 or 24 in hex
             msgstr = "02240104"
             return msgstr
-
     else:
         print("Unknown type")
