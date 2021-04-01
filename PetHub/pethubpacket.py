@@ -26,12 +26,13 @@ from datetime import datetime
 from operator import xor
 from pathlib import Path
 from enum import IntEnum
+from datetime import date, timedelta
 
 #Debugging mesages
-PrintFrame = True #Print the before and after xor frame
+PrintFrame = False #Print the before and after xor frame
 PrintFrameDbg = False #Print the frame headers
-Print126Frame = True #Debug the 2A / 126 feeder frame
-Print127Frame = True #Debug the 2D / 127 feeder frame
+Print126Frame = False #Debug the 2A / 126 feeder frame
+Print127Frame = False #Debug the 2D / 127 feeder frame
 Print132Frame = False #Debug the 3C / 132 hub and door frame
 Print2Frame = False   #Debug the 2 frame
 
@@ -134,6 +135,9 @@ conn=sqlite3.connect('pethublocal.db')
 curs=conn.cursor()
 conn.row_factory = sqlite3.Row
 
+#Create hex timestamp
+ts = hex(round(datetime.utcnow().timestamp()))[2:]
+
 def feederchiptohex(chip):
     chiphex = ""
     if len(chip) == 10:
@@ -182,6 +186,23 @@ def doorhextochip(chiphex):
         #print("Door   Hex to Chip : " + chiphex + " " + chip)
     return chip
 
+def bit2int(number,start,bitlen,fill):
+     return str(int(number[start : start+bitlen],2)).zfill(fill)
+
+def int2bit(number,fill):
+     return str(bin(int(number))[2:]).zfill(fill)
+
+def feedertimestamptostring(number):
+    binstring = str(bin(number)[2:]).zfill(32)
+    return '{0}-{1}-{2} {3}:{4}:{5}'.format(bit2int(binstring,0,5,2),bit2int(binstring,5,4,2),bit2int(binstring,9,5,2),bit2int(binstring,14,5,2),bit2int(binstring,19,6,2),bit2int(binstring,25,6,2))
+
+def feedertimestampfromnow():
+    now = datetime.now() # Current timestamp
+    return int(int2bit(now.strftime("%y"),5)+int2bit(now.month,4)+int2bit(now.day,5)+int2bit(now.hour,5)+int2bit(now.minute,6)+int2bit(now.second,6),2).to_bytes(4,'little').hex()
+
+def bltoi(value): #Bytes little to integer
+    return int.from_bytes(value,byteorder='little')
+
 #Conversion of byte arrays into integers
 def b2ih(b2ihvalue):
     #Divide int by 100 to give two decimal places for weights
@@ -195,13 +216,13 @@ def b2is(b2ivalue):
     #Take little endian hex byte array and convert it into a int then into a string.
     return str(int.from_bytes(b2ivalue, byteorder='little', signed=True))
 
-def b2ib(b2ivalue):
+def b2ibs(b2ivalue):
     #Take little endian hex byte array and convert it into a int then into a string.
     return str(int.from_bytes(b2ivalue, byteorder='big', signed=True))
 
-def macconv(macaddress):
+def b2ibu(b2ivalue):
     #Take little endian hex byte array and convert it into a int then into a string.
-    return str(int.from_bytes(b2ivalue, byteorder='big', signed=True))
+    return str(int.from_bytes(b2ivalue, byteorder='big', signed=False))
 
 def tohex(ba):
     return ''.join(format(x, '02x') for x in ba)
@@ -248,6 +269,11 @@ def parsemultiframe(device, payload):
 def parseframe(device, value):
     frameresponse = {}
     msg = ""
+
+    #Frame timestamp value
+    frametimestamp = feedertimestamptostring(bltoi(value[4:8]))
+    frameresponse["framets"]=frametimestamp
+
     if value[0] in [0x07, 0x0b, 0x0c, 0x10, 0x16]: #Unknown messages
         op=hb(value[0])
         frameresponse["OP"]="Msg"+op
@@ -389,7 +415,7 @@ def parsehubframe(operation,device,offset,value):
         print("Operation: " + operation + " device " + device + " offset " + str(offset) + " -value- " + value)
     logmsg=""
     if offset == 33: #Battery and 
-        print("Value",message[1])
+        #print("Value",message[1])
         op="BatteryandTime"
         msgval['OP']=op
         operation.append(op)
@@ -438,7 +464,7 @@ def parsedoorframe(operation,device,offset,value):
         print("Operation: " + operation + " device " + device + " offset " + str(offset) + " -value- " + value)
     logmsg=""
     if offset == 33: #Battery and 
-        print("Value",message[1])
+        #print("Value",message[1])
         op="BatteryandTime"
         msgval['OP']=op
         operation.append(op)
@@ -498,7 +524,6 @@ def parsedoorframe(operation,device,offset,value):
         msgval['OP']=op
         operation.append(op)
         pet=round((int(offset)-522)/3)-1 #Calculate the pet number
-        petname = petmovement(device, pet)
         if PetDoorDirection.has_value(message[3]):
             direction = PetDoorDirection(message[3]).name
         else:
@@ -536,6 +561,7 @@ def decodehubmqtt(topic,message):
     #Decode device name
     if device=="messages":
         response['device'] = "hub"
+        timestampstr = str(datetime.utcfromtimestamp(int(ts,16)))
     else:
         curs.execute('select name from devices where mac_address=(?)', ([device]))
         devicename = curs.fetchone()
@@ -543,10 +569,12 @@ def decodehubmqtt(topic,message):
             response['device'] = str(devicename[0])
         else:
             response['device'] = str(device)
+        timestampstr = str(datetime.utcfromtimestamp(int(msgsplit[0],16)))
     response['message'] = msgsplit
-    
-    response['timestamp'] = msgsplit[0]
-    
+    response['timestamp']=timestampstr
+
+    #Timestamp calculations
+
     if msgsplit[1] == "1000":
         operation = "Command"
     else:
@@ -573,7 +601,6 @@ def decodehubmqtt(topic,message):
         response['message'] = resp
     elif msgsplit[2] == "127": #Feeder frame sent/control message
         #ba = bytearray([0x7F])
-        print("message 127")
         singleframe = bytearray.fromhex("".join(msgsplit[3:]))
         singleresponse = []
         singleframeresponse = parseframe(device, singleframe)
@@ -628,11 +655,15 @@ def decodemiwi(timestamp,source,destination,framestr):
     sourcemac=''.join(list(reversed(source.split(":")))).upper()
     destinationmac=''.join(list(reversed(destination.split(":")))).upper()
 
+    timesplit=timestamp.split(".")
+    hextimestamp = hex(round(int(timesplit[0])))[2:]
+    #print("Time " + hextimestamp)
+
     #Dexor the frame
     frame = list(map(xor, framexor, xorkey))
 
     if PrintFrame:
-        print("Received frame at: " + timestamp + " from: " + sourcemac + " to: " + destinationmac)
+        print("Received frame at: " + hextimestamp + " from: " + sourcemac + " to: " + destinationmac)
         print("Packet:" + tohex(framexor))
         print("Dexor :" + tohex(frame))
     if len(frame) > 8:
@@ -661,7 +692,7 @@ def decodemiwi(timestamp,source,destination,framestr):
         elif frame[2] == 0x3c: #Pet door frame
             if Print132Frame:
                 print("DF-132 Request: " + tohex(payload))
-            print(parsedoorframe('Status',sourcemac,int(b2ib(payload[0:2])),tohex(payload[2:-1])))
+            #print(parsedoorframe('Status',sourcemac,int(b2ibs(payload[0:2])),tohex(payload[2:-1])))
         return response
     else:
         logmsg = "Corrupt Frame " + tohex(frame)
@@ -669,7 +700,6 @@ def decodemiwi(timestamp,source,destination,framestr):
 
 def buildmqttsendmessage(value):
 #  ts = str(binascii.hexlify(struct.pack('>I', round(datetime.utcnow().timestamp()))),'ascii')
-  ts = hex(round(datetime.utcnow().timestamp()))[2:]
   return ts + " 1000 " + value
 
 #Generate message
