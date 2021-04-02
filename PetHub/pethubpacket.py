@@ -561,7 +561,7 @@ def inithubmqtt():
     curs.execute('select name,product_id,led_mode,pairing_mode,curfewenabled,lock_time,unlock_time,lockingmode,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
     devices = curs.fetchall()
     if devices:
-        response['device'] = devices
+        response['devices'] = devices
     curs.execute('select pets.name as name,species,devices.name as device,product_id,state from pets left outer join petstate on pets.tag=petstate.tag left outer join devices on petstate.mac_address=devices.mac_address;')
     pets = curs.fetchall()
     if pets:
