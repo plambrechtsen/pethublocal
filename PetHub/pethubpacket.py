@@ -526,8 +526,10 @@ def parsedoorframe(operation,device,offset,value):
         pet=round((int(offset)-522)/3)-1 #Calculate the pet number
         if PetDoorDirection.has_value(message[3]):
             direction = PetDoorDirection(message[3]).name
+            msgval['State']=PetDoorState(message[3]).name
         else:
             direction = "Other " + hb(message[3])
+            msgval['State']="OFF"
         msgval['PetOffset']=pet
         msgval['Animal']=petnamebydevice(device, pet)
         msgval['Direction']=direction
@@ -539,6 +541,7 @@ def parsedoorframe(operation,device,offset,value):
         msgval['PetOffset']="621"
         msgval['Animal']="Unknown Pet"
         msgval['Direction']="Outside"
+        msgval['State']="OFF"
 #        logmsg += device + " " + operation + "-Pet Movement    : Unknown pet went outside " + value
     else:
         op="Other"
@@ -550,6 +553,19 @@ def parsedoorframe(operation,device,offset,value):
         #print("other offset" + logmsg)
     response.append(msgval)
     response.append({"OP":operation})
+    return response
+
+def inithubmqtt():
+    response = dict();
+    #Devices
+    curs.execute('select name,product_id,led_mode,pairing_mode,curfewenabled,lock_time,unlock_time,lockingmode,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
+    devices = curs.fetchall()
+    if devices:
+        response['device'] = devices
+    curs.execute('select pets.name as name,species,devices.name as device,product_id,state from pets left outer join petstate on pets.tag=petstate.tag left outer join devices on petstate.mac_address=devices.mac_address;')
+    pets = curs.fetchall()
+    if pets:
+        response['pets'] = pets
     return response
 
 def decodehubmqtt(topic,message):

@@ -28,20 +28,24 @@ async def petlocaldb():
     sp = spc.SureAPIClient(email=user, password=password)
     await sp.call(method="GET", resource=spco.MESTART_RESOURCE)
     if data := sp.resources[spco.MESTART_RESOURCE].get("data", {}):
+        #Dump response
+        #print(data)
         # Create pet hub local tables
         conn = create_connection('pethublocal.db')
         if conn is not None:
             sqlcmd(conn, "DROP TABLE devices;")
+            sqlcmd(conn, "DROP TABLE hubs;")
             sqlcmd(conn, "DROP TABLE doors;")
             sqlcmd(conn, "DROP TABLE feeders;")
             sqlcmd(conn, "DROP TABLE tagmap;")
             sqlcmd(conn, "DROP TABLE pets;")
             sqlcmd(conn, "DROP TABLE petstate;")
             sqlcmd(conn, "CREATE TABLE devices(mac_address TEXT, product_id INTEGER, name TEXT, serial_number TEXT, battery TEXT, device_rssi TEXT, hub_rssi TEXT, version BLOB);")
+            sqlcmd(conn, "CREATE TABLE hubs(mac_address TEXT, led_mode INTEGER, pairing_mode INTEGER );")
             sqlcmd(conn, "CREATE TABLE doors(mac_address TEXT, curfewenabled INTEGER, lock_time TEXT, unlock_time TEXT, lockingmode INTEGER );")
             sqlcmd(conn, "CREATE TABLE feeders(mac_address TEXT, bowltarget1 INTEGER, bowltarget2 INTEGER, bowltype INTEGER, close_delay INTEGER );")
             sqlcmd(conn, "CREATE TABLE tagmap(mac_address TEXT, deviceindex INTEGER, tag TEXT, UNIQUE (mac_address, deviceindex) ON CONFLICT REPLACE );")
-            sqlcmd(conn, "CREATE TABLE pets(tag TEXT, name TEXT );")
+            sqlcmd(conn, "CREATE TABLE pets(tag TEXT, name TEXT, species INTEGER );")
             sqlcmd(conn, "CREATE TABLE petstate(tag TEXT, mac_address TEXT, timestamp TEXT, state BLOB );")
             sqlcmd(conn, "CREATE TABLE devicestate(mac_address TEXT, offset INTEGER, data BLOB, UNIQUE (mac_address, offset) ON CONFLICT REPLACE );")
         else:
@@ -55,8 +59,12 @@ async def petlocaldb():
         for pets in data['pets']:
             tagid = pets['tag_id']
             name = pets['name']
+            if 'species_id' in pets:
+                species = pets['species_id']
+            else:
+                species = 0
             tag = [x for x in tags if x["id"]==tagid][0]['tag']
-            c.execute("INSERT INTO pets values((?), (?) );", (tag, name))
+            c.execute("INSERT INTO pets values((?), (?), (?));", (tag, name, species))
             conn.commit()
 
             if 'status' in pets:
@@ -101,6 +109,16 @@ async def petlocaldb():
             version = json.dumps(device['status']['version'])
             c.execute("INSERT INTO devices values((?), (?), (?), (?), (?), (?), (?), (?));", (mac_address, product_id, name, serial_number, battery, device_rssi, hub_rssi, version))
             conn.commit()
+
+            if product_id == 1: #Hub
+                if 'led_mode' in device['control']:
+                    led_mode = device['control']['led_mode']
+                    pairing_mode = device['control']['pairing_mode']
+                else:
+                    led_mode = 0
+                    pairing_mode = 0
+                c.execute("INSERT INTO hubs values((?), (?), (?));", (mac_address, led_mode, pairing_mode))
+                conn.commit()
 
             if product_id == 3: #Pet Door
                 if 'enabled' in device['control']['curfew']:
