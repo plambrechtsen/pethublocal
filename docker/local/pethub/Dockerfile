@@ -10,4 +10,4 @@ RUN pip install -r packages.txt
 
 COPY . .
 
-ENTRYPOINT ["python", "pethubmqtt.py"]
+ENTRYPOINT ["python", "-u", "pethubmqtt.py"]

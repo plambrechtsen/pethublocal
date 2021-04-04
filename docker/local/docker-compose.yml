@@ -1,4 +1,4 @@
-version: "3.7"
+version: "3.3"
 services:
 #MQTT Server based off mosquitto Docker file and configuration in /default
   mqtt:
@@ -42,8 +42,8 @@ services:
     volumes:
       - './output/pethub:/pethub/out'
       - '/etc/localtime:/etc/localtime:ro'
-    networks:
-      - local_net
+#    networks:
+#      - local_net
 
 #Surepet network used between mqtt_msgs and mqtt
 networks:

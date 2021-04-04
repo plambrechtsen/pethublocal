@@ -1,4 +1,2 @@
-emit
 wheel
-asyncio
-hbmqtt
+paho-mqtt

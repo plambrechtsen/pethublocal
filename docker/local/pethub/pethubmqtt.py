@@ -1,23 +1,15 @@
 #import logging
-import asyncio, json, ast
+import json, ast
 import pethubpacket as phlp
+import paho.mqtt.client as mqtt
 from pethubconst import *
 
-import paho.mqtt.client as mqtt
-
 #logger = logging.getLogger(__file__)
-#logging.basicConfig(level=logging.WARN)
+#logging.basicConfig(level=logging.INFO)
 
-#MQTT for pethublocal/hub where the hub messages go
-mqtt_hub = 'mqtt://192.168.1.250/'
-#mqtt_hub = 'mqtt://mqtt/'
-mqtt_hubtopic = 'pethublocal/hub/#'
-
-#MQTT for Home Assistant
-mqtt_local = 'mqtt://192.168.1.250/'
-mqtt_local_t = 'homeassistant/'
-mqtt_local_in_t = 'homeassistant/+/pethub/#'
-
+#MQTT for pethublocal/hub and home assistant where the hub messages go, the broker sends the messages from the docker hub mqtt instance to your home assistant instance in the mosquitto.conf broker setting
+mqtthost = '192.168.1.250'
+mqttport = 1883
 hubmsg_t = 'pethublocal/hub/messages'
 pet_t = 'homeassistant/sensor/pethub/pet_'
 device_t = 'homeassistant/sensor/pethub/device_'
@@ -72,13 +64,16 @@ def on_publish(cl,data,res):
     #print("data published ", res)
     pass
 
+print("Starting Pet Hub")
 mc = mqtt.Client()
 mc.on_message = on_message
 mc.on_publish = on_publish
-mc.connect("192.168.1.250", 1883, 30)
+print("Connecting to Home Assistant MQTT endpoint at " + mqtthost + " port " + str(mqttport))
+mc.connect(mqtthost, mqttport, 30)
 
 pethubinit = phlp.inithubmqtt()
 for device in pethubinit['devices']:
+    print("Load pethublocal.db and init Home Assistant MQTT discovery configuration")
     print(device)
     if device[1] == 1: #Hub
         mc.message_callback_add(hubmsg_t, on_hub_message)
@@ -117,6 +112,7 @@ for device in pethubinit['devices']:
                 ret=mc.publish(device_t+device[0].lower()+'_bowl_target/state',str(device[9]))
 
 for pet in pethubinit['pets']:
+    print("Load Pets from pethublocal.db and init mqtt discovery")
     print(pet)
     if pet[3] == 3: #Pet Door
         configmessage={"name": pet[0], "icon": "mdi:"+Animal(pet[1]).name, "unique_id": "pet_"+pet[0].lower(), "state_topic": pet_t+pet[0].lower()+"/state"}
@@ -138,6 +134,7 @@ for pet in pethubinit['pets']:
             ret=mc.publish(pet_t+pet[0].lower()+'_bowl/state',str(pet[4]))
 
 #Publish callback
+print("Subscribe to pethublocal and home assistant topics")
 mc.subscribe([("pethublocal/#",1), ("homeassistant/+/pethub/+/state", 0)])
 mc.loop_forever()
 

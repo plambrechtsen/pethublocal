@@ -185,9 +185,9 @@ def parseframe(device, value):
     msg = ""
 
     #Frame timestamp value
-    print(tohex(value[4:8]))
+#    print(tohex(value[4:8]))
     frametimestamp = feedertimestamptostring(bltoi(value[4:8]))
-    print(str(frametimestamp))
+#    print(str(frametimestamp))
     frameresponse["framets"]=frametimestamp
 
     if value[0] in [0x07, 0x0b, 0x0c, 0x10, 0x16]: #Unknown messages
