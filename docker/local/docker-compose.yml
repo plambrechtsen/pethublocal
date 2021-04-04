@@ -35,15 +35,15 @@ services:
     ports:
 #      - "192.168.20.241:443:443"
       - "443:443"
-#pethub Python code using hbmqtt
-#  pethub:
-#    build: pethub
-#    container_name: local_pethub
-#    volumes:
-#      - './output/pethub:/pethub/out'
-#      - '/etc/localtime:/etc/localtime:ro'
-#    networks:
-#      - local_net
+#pethub Python code using paho mqtt
+  pethub:
+    build: pethub
+    container_name: local_pethub
+    volumes:
+      - './output/pethub:/pethub/out'
+      - '/etc/localtime:/etc/localtime:ro'
+    networks:
+      - local_net
 
 #Surepet network used between mqtt_msgs and mqtt
 networks:

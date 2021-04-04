@@ -27,6 +27,7 @@ from operator import xor
 from pathlib import Path
 from enum import IntEnum
 from datetime import date, timedelta
+from pethubconst import *
 
 #Debugging mesages
 PrintFrame = False #Print the before and after xor frame
@@ -35,93 +36,6 @@ Print126Frame = False #Debug the 2A / 126 feeder frame
 Print127Frame = False #Debug the 2D / 127 feeder frame
 Print132Frame = False #Debug the 3C / 132 hub and door frame
 Print2Frame = False   #Debug the 2 frame
-
-class SureEnum(IntEnum):
-    """Sure base enum."""
-    def __str__(self) -> str:
-        return self.name.title()
-
-    @classmethod
-    def has_value(self, value):
-        return value in self._value2member_map_ 
-
-class EntityType(SureEnum):
-    """Sure Entity Types."""
-    PET           = 0   # artificial ID, not used by the Sure Petcare API
-    HUB           = 1   # Hub
-    REPEATER      = 2   # Repeater
-    PET_FLAP      = 3   # Pet Door Connect
-    FEEDER        = 4   # Microchip Pet Feeder Connect
-    PROGRAMMER    = 5   # Programmer
-    FEEDER_LITE   = 7   # Feeder Lite
-    CAT_FLAP      = 6   # Cat Flap Connect
-    FELAQUA       = 8   # Felaqua Connect
-    DEVICES       = 13  # artificial ID, Pet Flap + Cat Flap + Feeder = 3 + 6 + 4 = 13  ¯\_(ツ)_/¯
-
-class FeederState(SureEnum): # Feeder states
-    Animal_Open   = 0   # Animal Open Feeder
-    Animal_Closed = 1   # Animal Closed Feeder
-    Manual_Open   = 4   # Manually Opened Feeder
-    Manual_Closed = 5   # Manually Closed Feeder
-    Zero_Both     = 6   # Zero Feeder both scales
-    Zero_Left     = 7   # Zero Feeder left scale
-    Zero_Right    = 8   # Zero Feeder right scale
-
-class FeederCloseDelay(SureEnum): # Feeder Close Delay speed
-    Fast        = 0     # Fast delay
-    Normal      = 4000  # Normal delay
-    Slow        = 20000 # Slow delay
-
-class FeederBowls(SureEnum): # Feeder Close Delay speed
-    Single        = 1   # Fast close delay
-    Double        = 2   # Normal delay
-
-class LockState(SureEnum): # Lock State IDs.
-    UNLOCKED        = 0
-    LOCKED_IN       = 1
-    LOCKED_OUT      = 2
-    LOCKED_ALL      = 3
-    CURFEW          = 4
-    CURFEW_LOCKED   = -1
-    CURFEW_UNLOCKED = -2
-    CURFEW_UNKNOWN  = -3
-
-class LockedOutState(SureEnum): # Locked Out State for preventing animals coming in
-    NORMAL          = 2  # Allow pets in
-    LOCKED_IN       = 3  # Keep pets out
-
-class PetDoorDirection(SureEnum): # Pet Movement on Pet Door coming in or out or looked in or unknown animal left
-    LooksIn_40      = 0x40 #This happens if the pet comes up to the door from outside, puts head in and unlocks the door but doesn't come in.
-    In_61           = 0x61 #Normal ingress
-    Out_62          = 0x62 #Normal egress
-    In_81           = 0x81 #Ingress if the pet door thought the pet was already inside
-    UnknownPet      = 0xd3 #This along with pet 621 is when the pet leaves too quickly for the pet door to read it leaving
-
-class CurfewState(SureEnum): # Sure Petcare API State IDs.
-    DISABLED        = 1
-    ENABLED         = 2
-    STATE3          = 3
-
-class HubLeds(SureEnum):   # Sure Petcare API LED State offset 0x18
-    DIMMED          = 0    #Dimmed Ears
-    BRIGHT          = 1    #Bright Ears
-    OFF             = 4    #Ears Off
-    FLASH3          = 0x80 #Flash Leds 3 times
-    FLASH2          = 0x81 #Flash Leds 2 times
-
-class HubAdoption(SureEnum): #Sure Petcare adoption mode 0x15
-    ENABLE          = 0      #Bright Ears
-    DISABLE         = 2      #Dimmed Ears
-
-class ProvChipState(SureEnum): # Chip Provisioned State
-    ENABLED         = 0
-    DISABLED        = 1
-    LOCK            = 2
-
-class CatFlapDirection(SureEnum): # Pet Movement on Cat Flap coming in or going out.
-    Out             = 0
-    In              = 1
-    Status          = 2
 
 #Import xor key from pethubpacket.xorkey and make sure it is sane.
 xorfile=Path('pethubpacket.xorkey').read_text()
@@ -194,7 +108,7 @@ def int2bit(number,fill):
 
 def feedertimestamptostring(number):
     binstring = str(bin(number)[2:]).zfill(32)
-    return '{0}-{1}-{2} {3}:{4}:{5}'.format(bit2int(binstring,0,5,2),bit2int(binstring,5,4,2),bit2int(binstring,9,5,2),bit2int(binstring,14,5,2),bit2int(binstring,19,6,2),bit2int(binstring,25,6,2))
+    return '{0}-{1}-{2} {3}:{4}:{5}'.format(bit2int(binstring,0,6,2),bit2int(binstring,6,4,2),bit2int(binstring,10,5,2),bit2int(binstring,15,5,2),bit2int(binstring,20,6,2),bit2int(binstring,26,6,2))
 
 def feedertimestampfromnow():
     now = datetime.now() # Current timestamp
@@ -271,7 +185,9 @@ def parseframe(device, value):
     msg = ""
 
     #Frame timestamp value
+    print(tohex(value[4:8]))
     frametimestamp = feedertimestamptostring(bltoi(value[4:8]))
+    print(str(frametimestamp))
     frameresponse["framets"]=frametimestamp
 
     if value[0] in [0x07, 0x0b, 0x0c, 0x10, 0x16]: #Unknown messages
@@ -526,10 +442,8 @@ def parsedoorframe(operation,device,offset,value):
         pet=round((int(offset)-522)/3)-1 #Calculate the pet number
         if PetDoorDirection.has_value(message[3]):
             direction = PetDoorDirection(message[3]).name
-            msgval['State']=PetDoorState(message[3]).name
         else:
             direction = "Other " + hb(message[3])
-            msgval['State']="OFF"
         msgval['PetOffset']=pet
         msgval['Animal']=petnamebydevice(device, pet)
         msgval['Direction']=direction
@@ -558,7 +472,7 @@ def parsedoorframe(operation,device,offset,value):
 def inithubmqtt():
     response = dict();
     #Devices
-    curs.execute('select name,product_id,led_mode,pairing_mode,curfewenabled,lock_time,unlock_time,lockingmode,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
+    curs.execute('select name,product_id,devices.mac_address,led_mode,pairing_mode,curfewenabled,lock_time,unlock_time,lockingmode,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
     devices = curs.fetchall()
     if devices:
         response['devices'] = devices
