@@ -1,0 +1,20 @@
+plantuml
+@startuml
+skinparam monochrome reverse
+Hub <-> NTP : Get the time
+group DNS
+Hub -> DNS : Lookup hub.api.surehub.io
+DNS -> Hub : Altered DNS response to return local instance
+end group
+group Cloud Service Credentials API endpoint
+Hub -> "Local Web" : POST to HTTPS /api/credentials\nwith Serial Number & MAC Address
+"Local Web" -> "Cloud Web" : POST to HTTPS /api/credentials\nwith Serial Number & MAC Address
+"Cloud Web" -> "Local Web" : Credentials response with MQTT topicn\nAWS IoT endpoint and Client Certificate
+"Local Web" -> "Local Web" : Alter credential file and save locally
+"Local Web" ->  Hub : Altered credentials response with local MQTT topic,\nlocal MQTT endpoint to also be hub.api.surehub.io
+end group
+group Local MQTT TLS Endpoint
+Hub -> "Local MQTT" : Connect to Local with Client Certificate
+"Local MQTT" -> Hub : MQTT TLS Session established
+end group
+@enduml

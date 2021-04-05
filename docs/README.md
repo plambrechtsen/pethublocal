@@ -9,24 +9,7 @@ As per the below standard flow it is:
 - Connect to HTTPS Cloud service to retrieve credentials and client certificate
 - Connect to AWS IoT MQTT with client certificate 
 
-```plantuml
-@startuml
-    skinparam monochrome reverse
-    Hub <-> NTP : Get the time
-    group DNS
-    Hub -> DNS : Lookup hub.api.surehub.io
-    DNS -> Hub : Response
-    end group
-    group Cloud Service Credentials API endpoint
-    Hub -> Web : POST to HTTPS /api/credentials with Serial Number & MAC Address
-    Web -> Hub : Credentials response with MQTT topic, AWS IoT endpoint and Client Certificate
-    end group
-    group AWS IoT MQTT TLS Endpoint
-    Hub -> MQTT : Connect to AWS with Client Certificate
-    MQTT -> Hub : MQTT TLS Session established
-    end group
-@enduml
-```
+![Standard-SurePet](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/plambrechtsen/pethublocal/main/docs/SurePet.iuml)
 
 ## Pet Hub Local Hub altered boot process
 
@@ -37,25 +20,4 @@ As per the below the altered flow is:
 - Responds to Hub with altered credentials file
 - Connect to local MQTT with client certificate but it doesn't validate the certificate
 
-```plantuml
-@startuml
-    skinparam monochrome reverse
-    Hub <-> NTP : Get the time
-    group DNS
-    Hub -> DNS : Lookup hub.api.surehub.io
-    DNS -> Hub : Altered DNS response to return local instance
-    end group
-    group Cloud Service Credentials API endpoint
-    Hub -> "Local Web" : POST to HTTPS /api/credentials\nwith Serial Number & MAC Address
-    "Local Web" -> "Cloud Web" : POST to HTTPS /api/credentials\nwith Serial Number & MAC Address
-    "Cloud Web" -> "Local Web" : Credentials response with MQTT topicn\nAWS IoT endpoint and Client Certificate
-    "Local Web" -> "Local Web" : Alter credential file and save locally
-    "Local Web" ->  Hub : Altered credentials response with local MQTT topic,\nlocal MQTT endpoint to also be hub.api.surehub.io
-    end group
-    group Local MQTT TLS Endpoint
-    Hub -> "Local MQTT" : Connect to Local with Client Certificate
-    "Local MQTT" -> Hub : MQTT TLS Session established
-    end group
-
-@enduml
-```
+![PetHubLocal](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/plambrechtsen/pethublocal/main/docs/Pethublocal.iuml)

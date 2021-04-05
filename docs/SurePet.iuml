@@ -1,0 +1,17 @@
+plantuml
+@startuml
+    skinparam monochrome reverse
+    Hub <-> NTP : Get the time
+    group DNS
+    Hub -> DNS : Lookup hub.api.surehub.io
+    DNS -> Hub : Response
+    end group
+    group Cloud Service Credentials API endpoint
+    Hub -> Web : POST to HTTPS /api/credentials with Serial Number & MAC Address
+    Web -> Hub : Credentials response with MQTT topic, AWS IoT endpoint and Client Certificate
+    end group
+    group AWS IoT MQTT TLS Endpoint
+    Hub -> MQTT : Connect to AWS with Client Certificate
+    MQTT -> Hub : MQTT TLS Session established
+    end group
+@enduml
