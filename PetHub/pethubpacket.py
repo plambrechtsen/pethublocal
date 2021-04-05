@@ -112,7 +112,7 @@ def feedertimestamptostring(number):
 
 def feedertimestampfromnow():
     now = datetime.now() # Current timestamp
-    return int(int2bit(now.strftime("%y"),5)+int2bit(now.month,4)+int2bit(now.day,5)+int2bit(now.hour,5)+int2bit(now.minute,6)+int2bit(now.second,6),2).to_bytes(4,'little').hex()
+    return int(int2bit(now.strftime("%y"),6)+int2bit(now.month,4)+int2bit(now.day,5)+int2bit(now.hour,5)+int2bit(now.minute,6)+int2bit(now.second,6),2).to_bytes(4,'little').hex()
 
 def bltoi(value): #Bytes little to integer
     return int.from_bytes(value,byteorder='little')
@@ -351,7 +351,8 @@ def parsehubframe(operation,device,offset,value):
         op="LockState"
         msgval['OP']=op
         operation.append(op)
-        msgval['Lock']=LockState(int(message[1])).name
+        #msgval['Lock']=LockState(int(message[1])).name
+        msgval['Lock']=message[1]
         response.append(msgval)
         #logmsg += device + " " + operation + "-Lockstate       : "+ pDLockState[int(message[1])]
         #if int(message[0]) > 1:
@@ -637,55 +638,49 @@ def generatemessage(devicetype,operation):
     if devicetype=="hub":
         if operation == "dumpstate":      #Dump all memory registers from 0 to 205
             msgstr = "3 0 205"
-            return msgstr
         elif operation == "flashleds":    #Flash the ears 3 times
             msgstr = "2 18 1 80"
-            return msgstr
         elif operation == "flashleds2":   #Flash the ears 2 times
             msgstr = "2 18 1 81"
-            return msgstr
         elif operation == "earsoff":      #Turn ear lights off
             msgstr = "2 18 1 04"
-            return msgstr
         elif operation == "earsdimmed":   #Ears dimmed
             msgstr = "2 18 1 00"
-            return msgstr
         elif operation == "earsbright":   #Ears bright
             msgstr = "2 18 1 01"
-            return msgstr
         elif operation == "adoptdisable": #Disable adoption mode
             msgstr = "2 15 1 02"
-            return msgstr
         elif operation == "adoptdisable": #Enable adoption mode to adopt devices.
             msgstr = "2 15 1 00"
-            return msgstr
+        return buildmqttsendmessage(msgstr)
 
     elif devicetype=="petdoor":
         if operation == "dumpstate": #Dump all memory registers from 0 to 630
             msgstr = "3 0 630"
-            return msgstr
-        if operation == "setlockstate": #Lock state
-            msgstr = "2 36 1 XX"
-            return msgstr
-        if operation == "setlockstate2": #Lock state2
-            msgstr = "2 39 1 XX"
-            return msgstr
+        if operation == "setlockstateunlocked": #Lock state - unlocked
+            msgstr = "2 36 1 00"
+        if operation == "setlockstatein":       #Lock state - keep pets in
+            msgstr = "2 36 1 01"
+        if operation == "setlockstateout":      #Lock state - keep pets out
+            msgstr = "2 36 1 02"
+        if operation == "setlockstateboth":     #Lock state - lock both ways
+            msgstr = "2 36 1 03"
+        if operation == "setlockstate39":       #Lock state offset 39, was only set on first lock, probably not needed
+            msgstr = "2 39 1 01"
         if operation == "setcurfew": #Curfew, EE = Enable State, FF = From HH:MM, TT = To HH:MM
             msgstr = "2 519 6 EE FF FF TT TT 00"
-            return msgstr
+        return buildmqttsendmessage(msgstr)
 
     elif devicetype=="feeder": #Message 127 to the feeder or cat door
         if operation == "ackfeederstatedoor":
         #Acknowledge the 18 door state.
             msgstr = "0000ZZ00TTTTTTTT180000"
             msgstr = msgstr.replace('ZZ', format(counter,'02x'))
-            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
-            return msgstr
         elif operation == "ackfeederstate16":
             #Acknowledge the 16 state.
             msgstr = "0000ZZ00TTTTTTTT160000"
             msgstr = msgstr.replace('ZZ', format(counter,'02x'))
-            msgstr = msgstr.replace('TTTTTTTT', timestamp) # Timestamp
+            msgstr = msgstr.replace('TTTTTTTT', feedertimestamp) # Timestamp
             return msgstr
         elif operation == "ackfeederstate09":
             #Acknowledge the 09 settings update state.
@@ -793,9 +788,11 @@ def generatemessage(devicetype,operation):
             #Provision chip, CCCCCCCCCCCCCC is the chip in hex format using feederhextochip and SS is state 00 = disabled, 01 = enabled.
             msgstr = "1100ZZ00TTTTTTTTCCCCCCCCCCCCCC0200SS"
             msgstr = msgstr.replace('ZZ', format(counter,'02x'))
-            return msgstr
         else:
             print("Unknown message")
+        msgstr = msgstr.replace('TTTTTTTT', feedertimestampfromnow()) # Timestamp
+        return msgstr
+
     elif type=="petdoor":
         if operation == "settime":
             #Set the time, packet 34 or 22 in hex
