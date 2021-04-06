@@ -86,8 +86,8 @@ class PetDoorDirection(SureEnum): # Pet Movement on Pet Door coming in or out or
     UnknownPet          = 0xd3 #This along with pet 621 is when the pet leaves too quickly for the pet door to read it leaving
 
 class CurfewState(SureEnum): # Sure Petcare API State IDs.
-    ZERO            = 0
-    DISABLED        = 1
+    ON              = 0
+    OFF             = 1
     ENABLED         = 2
     STATE3          = 3
 
@@ -126,3 +126,4 @@ class Animal(SureEnum): # Animal mdi mapping
 class AnimalState(SureEnum): # Animal State
     Outside          = 0
     Inside           = 1
+

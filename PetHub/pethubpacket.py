@@ -351,8 +351,8 @@ def parsehubframe(operation,device,offset,value):
         op="LockState"
         msgval['OP']=op
         operation.append(op)
-        #msgval['Lock']=LockState(int(message[1])).name
-        msgval['Lock']=message[1]
+        msgval['Lock']=LockState(int(message[1])).name
+        #msgval['Lock']=message[1]
         response.append(msgval)
         #logmsg += device + " " + operation + "-Lockstate       : "+ pDLockState[int(message[1])]
         #if int(message[0]) > 1:
@@ -634,7 +634,7 @@ def buildmqttsendmessage(value):
   return ts + " 1000 " + value
 
 #Generate message
-def generatemessage(devicetype,operation):
+def generatemessage(devicetype,device,operation,state):
     if devicetype=="hub":
         if operation == "dumpstate":      #Dump all memory registers from 0 to 205
             msgstr = "3 0 205"
@@ -669,6 +669,25 @@ def generatemessage(devicetype,operation):
             msgstr = "2 39 1 01"
         if operation == "setcurfew": #Curfew, EE = Enable State, FF = From HH:MM, TT = To HH:MM
             msgstr = "2 519 6 EE FF FF TT TT 00"
+        if operation == "inbound" or operation == "outbound":
+            curs.execute('select mac_address, lockingmode from devices join doors using (mac_address) where name like (?)', ([device]))
+            lockingmode = curs.fetchone()
+            #print("Current locking mode: " + lockingmode[0])
+            if (operation == "outbound" and state == "OFF" and lockingmode[1] == 1) or (operation == "inbound" and state == "OFF" and lockingmode[1] == 2):
+                #Going to Lock State 0 - Unlocked
+                msgstr = "2 36 1 00"
+            elif (operation == "outbound" and state == "ON" and lockingmode[1] == 0) or (operation == "inbound" and state == "OFF" and lockingmode[1] == 3):
+                #Going to Lock State 1 - Keep pets in
+                msgstr = "2 36 1 01"
+            elif (operation == "outbound" and state == "OFF" and lockingmode[1] == 3) or (operation == "inbound" and state == "ON" and lockingmode[1] == 0):
+                #Going to Lock State 2 - Keep pets out
+                msgstr = "2 36 1 02"
+            elif (operation == "outbound" and state == "ON" and lockingmode[1] == 2) or (operation == "inbound" and state == "ON" and lockingmode[1] == 1):
+                #Going to Lock State 3 - Lock both ways
+                msgstr = "2 36 1 03"
+            else:
+                msgstr = "2 36 1 00"
+            return {"topic":"pethublocal/messages/"+lockingmode[0], "msg":buildmqttsendmessage(msgstr)}
         return buildmqttsendmessage(msgstr)
 
     elif devicetype=="feeder": #Message 127 to the feeder or cat door
@@ -805,3 +824,11 @@ def generatemessage(devicetype,operation):
             return msgstr
     else:
         print("Unknown type")
+
+def updatedb(tab,dev,col,val):
+    cur = conn.cursor()
+    upd = 'UPDATE '+ tab + ' SET ' + col + ' = "' + str(LockState[val].value) + '" WHERE mac_address = "' + dev + '"'
+    #print(upd)
+    cur.execute(upd)
+    #cur.execute('UPDATE doors SET ? = ? WHERE mac_address = ?', (col,val,dev))
+    conn.commit()

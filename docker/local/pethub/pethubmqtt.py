@@ -25,51 +25,80 @@ def on_petdoor_message(client, obj, msg):
     pethub = phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
     for values in pethub['message'][-1:][0].values():
         if "PetMovement" in values: #Pet Movement 
-            msg = next((fm for fm in pethub['message'] if fm['OP'] == "PetMovement"), None)
-            ret=mc.publish(pet_t + msg['Animal'].lower() + '/state',msg['Direction'])
+            mv = next((fm for fm in pethub['message'] if fm['OP'] == "PetMovement"), None)
+            ret=mc.publish(pet_t + mv['Animal'].lower() + '/state',mv['Direction'])
         if "LockState" in values: #Lock state
-            msg = next((fm for fm in pethub['message'] if fm['OP'] == "LockState"), None)
-            if msg['Lock'] in ["LOCKED_IN","LOCKED_ALL"]:
+            mv = next((fm for fm in pethub['message'] if fm['OP'] == "LockState"), None)
+            if mv['Lock'] in ["LOCKED_IN","LOCKED_ALL"]:
                 outlock = "ON"
             else:
                 outlock = "OFF"
-            if msg['Lock'] in ["LOCKED_OUT","LOCKED_ALL"]:
+            if mv['Lock'] in ["LOCKED_OUT","LOCKED_ALL"]:
                 inlock = "ON"
             else:
                 inlock = "OFF"
-            ret=mc.publish(device_switch_t+device[0].lower()+"_lock_outbound/state",outlock)
-            ret=mc.publish(device_switch_t+device[0].lower()+"_lock_inbound/state",inlock)
-    print(pethub)
+            ret=mc.publish(device_switch_t+devl+"_lock_outbound/state",outlock)
+            ret=mc.publish(device_switch_t+devl+"_lock_inbound/state",inlock)
+            topicsplit = msg.topic.split("/")
+            print(topicsplit[-1])
+            lockmsg = phlp.updatedb('doors',topicsplit[-1],'lockingmode', mv['Lock'])
+            print(lockmsg)
+
+# Pet Door Lock Update State
+def on_petdoor_lock_message(client, obj, msg):
+    print("Door Lock " + msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+    topicsplit = msg.topic.split("/")
+    #print(topicsplit[3])
+    devname=topicsplit[3].split("_")
+    #print(devname[1])
+    lockmsg = phlp.generatemessage("petdoor", devname[1], devname[3], str(msg.payload,"utf-8"))
+    #print(lockmsg)
+    ret=mc.publish(lockmsg['topic'],lockmsg['msg'],qos=1)
+
+# Pet Door Curfew
+def on_petdoor_curfew_message(client, obj, msg):
+    print("Door Curfew " + msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+#    print(p.generatemessage("hub", "flashleds"))
+#    ret=mc.publish('pethublocal/messages',p.generatemessage("hub", "flashleds"),qos=1)
+#    print(ret)
+    print(pethubinit)
 
 # Feeder
 def on_feeder_message(client, obj, msg):
     print("Feeder " + msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
     pethub = phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
-    msg = next((fm for fm in pethub['message'] if fm['OP'] == "Feed"), None)
-    print("Feeder Message",msg)
-    print("FA ",msg['FA'])
-    if 'Animal_Closed' in msg['FA']:
-        #Update feeder current weight
-        bowl = {"state":msg['FA'], "left":msg['SLT'],"right":msg['SRT']}
-        #print(bowl)
-        ret=mc.publish(device_sensor_t+pethub['device'].lower()+'_bowl/state',json.dumps(bowl))
+#    print(pethub)
+    for values in pethub['message'][-1:][0].values():
+        if "Feed" in values:
+            mv = next((fm for fm in pethub['message'] if fm['OP'] == "Feed"), None)
+            print("Feeder Message",mv)
+            if 'Animal_Closed' in mv['FA']:
+                #Update feeder current weight
+                bowl = {"state":mv['FA'], "left":mv['SLT'],"right":mv['SRT']}
+                #print(bowl)
+                ret=mc.publish(device_sensor_t+pethub['device'].lower()+'_bowl/state',json.dumps(bowl))
 
-        #Update amount animal ate
-        petbowl = {"time":msg['FOS'], "left":str(round(float(msg['SLT'])-float(msg['SLF']),2)),"right":str(round(float(msg['SRT'])-float(msg['SRF']),2))}
-        print(petbowl)
-        for key in petbowl:
-            configmessage={"name": msg['Animal']+" "+key.replace('_', ' '), "icon": "mdi:bowl", "unique_id": "pet_"+msg['Animal'].lower()+"_"+key, "state_topic": pet_t+msg['Animal'].lower()+"_bowl/state", "value_template": "{{value_json."+key+" | round(2)}}"}
-            ret=mc.publish(pet_t+msg['Animal'].lower()+'_'+key+'/config',json.dumps(configmessage))
-        ret=mc.publish(pet_t+msg['Animal'].lower()+'_bowl/state',json.dumps(petbowl))
-    else:
-        print("Non animal close")
-        bowl = {"state":msg['FA'], "left":msg['SLT'],"right":msg['SRT']}
-        #ret=mc.publish(device_sensor_t+device[0].lower()+'_bowl/state',json.dumps(bowl))
-        ret=mc.publish(device_sensor_t+pethub['device'].lower()+'_bowl/state',json.dumps(bowl))
+                #Update amount animal ate
+                petbowl = {"time":mv['FOS'], "left":str(round(float(mv['SLT'])-float(mv['SLF']),2)),"right":str(round(float(mv['SRT'])-float(mv['SRF']),2))}
+                print(petbowl)
+                for key in petbowl:
+                    configmessage={"name": mv['Animal']+" "+key.replace('_', ' '), "icon": "mdi:bowl", "unique_id": "pet_"+mv['Animal'].lower()+"_"+key, "state_topic": pet_t+mv['Animal'].lower()+"_bowl/state", "value_template": "{{value_json."+key+" | round(2)}}"}
+                    ret=mc.publish(pet_t+mv['Animal'].lower()+'_'+key+'/config',json.dumps(configmessage))
+                ret=mc.publish(pet_t+mv['Animal'].lower()+'_bowl/state',json.dumps(petbowl))
+            else:
+                #print("Non animal close")
+                bowl = {"state":mv['FA'], "left":mv['SLT'],"right":mv['SRT']}
+                #ret=mc.publish(device_sensor_t+devl+'_bowl/state',json.dumps(bowl))
+                ret=mc.publish(device_sensor_t+pethub['device'].lower()+'_bowl/state',json.dumps(bowl))
+
+'''
+    print("FA ",msg['FA'])
+'''
 
 # Cat Door
 def on_catdoor_message(client, obj, msg):
     print("Cat Door " + msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+
 
 # Missed Message.. this shouldn't happen so log it.
 def on_message(client, obj, msg):
@@ -91,6 +120,8 @@ pethubinit = phlp.inithubmqtt()
 print(pethubinit)
 print("Load Devices from pethublocal.db and init Home Assistant MQTT discovery configuration")
 for device in pethubinit['devices']:
+    dev=device[0]
+    devl=device[0].lower()
 
     if device[1] == 1: #Hub
         print("Loading Hub: ", device)
@@ -99,20 +130,26 @@ for device in pethubinit['devices']:
     if device[1] == 3: #Pet Door (3) or Cat Door (7)
         print("Loading Pet Door: ", device)
         mc.message_callback_add(hubmsg_t + '/' + device[2], on_petdoor_message)
+        mc.message_callback_add(device_switch_t+devl+"_lock_inbound/set", on_petdoor_lock_message)
+        mc.message_callback_add(device_switch_t+devl+"_lock_outbound/set", on_petdoor_lock_message)
+        mc.message_callback_add(device_switch_t+devl+"_curfew/set", on_petdoor_curfew_message)
+
         #Not setting the state as a sensor anymore
-#        configmessage={"name": device[0], "icon": "mdi:door", "unique_id": "device_"+device[0].lower(), "state_topic": device_sensor_t + device[0].lower() + "/state"}
-#        ret=mc.publish(device_sensor_t+device[0].lower()+'/config',json.dumps(configmessage))
-#        ret=mc.publish(device_sensor_t+device[0].lower()+'/state',LockState(device[8]).name)
+#        configmessage={"name": device[0], "icon": "mdi:door", "unique_id": "device_"+devl, "state_topic": device_sensor_t + devl + "/state"}
+#        ret=mc.publish(device_sensor_t+devl+'/config',json.dumps(configmessage))
+#        ret=mc.publish(device_sensor_t+devl+'/state',LockState(device[8]).name)
         #Curfew
         if device[5] != "None" and device[6] != "None" and device[7] != "None":
-            curfewstate_t = "_curfew/state"
-            curfewstate = {"curfew": CurfewState(device[5]).name, "lock_time":str(device[6]),"unlock_time":str(device[7])}
-            #print(curfewstate)
+            #Curfew State Switch
+            configmessage={"name": dev+" Curfew", "icon": "mdi:door", "unique_id": "device_"+devl+"_curfew", "command_topic": device_switch_t+devl+"_curfew/set", "state_topic": device_switch_t+devl+"_curfew/state" }
+            ret=mc.publish(device_switch_t+devl+"_"+key+'/config',json.dumps(configmessage))
+            ret=mc.publish(device_switch_t+devl+'_curfew/state',json.dumps(CurfewState(device[5]).name))
+
+            #Curfew State Times
+            curfewstate = {"lock_time":str(device[6]),"unlock_time":str(device[7])}
             for key in curfewstate:
-                #print(key)
-                configmessage={"name": device[0]+" "+key.replace('_', ' '), "icon": "mdi:door", "unique_id": "device_"+device[0].lower()+"_"+key, "state_topic": device_sensor_t+device[0].lower()+"_curfew/state", "value_template": "{{value_json."+key+"}}"}
-                ret=mc.publish(device_sensor_t+device[0].lower()+'_'+key+'/config',json.dumps(configmessage))
-            ret=mc.publish(device_sensor_t+device[0].lower()+'_curfew/state',json.dumps(curfewstate))
+                configmessage={"name": dev+" "+key.replace('_', ' '), "icon": "mdi:door", "unique_id": "device_"+devl+"_"+key, "state_topic": device_sensor_t+devl+"_curfew/state", "value_template": "{{value_json."+key+"}}"}
+                ret=mc.publish(device_sensor_t+devl+'_'+key+'/config',json.dumps(configmessage))
         #Lock state as a switch
         if device[8] != "None":
             print("Door state ", device[8])
@@ -120,8 +157,8 @@ for device in pethubinit['devices']:
             #print(curfewstate)
             for key in lockstate:
                 #print(key)
-                configmessage={"name": device[0]+" "+key.replace('_', ' '), "icon": "mdi:door", "unique_id": "device_"+device[0].lower()+"_"+key, "command_topic": device_switch_t+device[0].lower()+"_"+key+"/set", "state_topic": device_switch_t+device[0].lower()+"_"+key+"/state" }
-                ret=mc.publish(device_switch_t+device[0].lower()+"_"+key+'/config',json.dumps(configmessage))
+                configmessage={"name": dev+" "+key.replace('_', ' '), "icon": "mdi:door", "unique_id": "device_"+devl+"_"+key, "command_topic": device_switch_t+devl+"_"+key+"/set", "state_topic": device_switch_t+devl+"_"+key+"/state" }
+                ret=mc.publish(device_switch_t+devl+"_"+key+'/config',json.dumps(configmessage))
             if device[8] in [1,3]:
                 outlock = "ON"
             else:
@@ -130,8 +167,8 @@ for device in pethubinit['devices']:
                 inlock = "ON"
             else:
                 inlock = "OFF"
-            ret=mc.publish(device_switch_t+device[0].lower()+"_lock_outbound/state",outlock)
-            ret=mc.publish(device_switch_t+device[0].lower()+"_lock_inbound/state",inlock)
+            ret=mc.publish(device_switch_t+devl+"_lock_outbound/state",outlock)
+            ret=mc.publish(device_switch_t+devl+"_lock_inbound/state",inlock)
 
     if device[1] == 4: #Feeder
         print("Loading Feeder: ", device)
@@ -140,18 +177,18 @@ for device in pethubinit['devices']:
             if device[10] != "None":
                 bowltargetstate = {"left_target": str(device[9]),"right_target":str(device[10])}
                 for key in bowltargetstate:
-                    configmessage={"name": device[0]+" "+key.replace('_', ' '), "icon": "mdi:bowl", "unique_id": "device_"+device[0].lower()+"_"+key, "state_topic": device_sensor_t+device[0].lower()+"_bowl_target/state", "value_template": "{{value_json."+key+"}}"}
-                    ret=mc.publish(device_sensor_t+device[0].lower()+'_'+key+'/config',json.dumps(configmessage))
-                ret=mc.publish(device_sensor_t+device[0].lower()+'_bowl_target/state',json.dumps(bowltargetstate))
+                    configmessage={"name": dev+" "+key.replace('_', ' '), "icon": "mdi:bowl", "unique_id": "device_"+devl+"_"+key, "state_topic": device_sensor_t+devl+"_bowl_target/state", "value_template": "{{value_json."+key+"}}"}
+                    ret=mc.publish(device_sensor_t+devl+'_'+key+'/config',json.dumps(configmessage))
+                ret=mc.publish(device_sensor_t+devl+'_bowl_target/state',json.dumps(bowltargetstate))
                 bowl = {"state":"TBC", "left":"0","right":"0"}
                 for key in bowl:
-                    configmessage={"name": device[0]+" "+key.replace('_', ' '), "icon": "mdi:bowl", "unique_id": "device_"+device[0].lower()+"_"+key, "state_topic": device_sensor_t+device[0].lower()+"_bowl/state", "value_template": "{{value_json."+key+"}}"}
-                    ret=mc.publish(device_sensor_t+device[0].lower()+'_'+key+'/config',json.dumps(configmessage))
-                ret=mc.publish(device_sensor_t+device[0].lower()+'_bowl/state',json.dumps(bowl))
+                    configmessage={"name": dev+" "+key.replace('_', ' '), "icon": "mdi:bowl", "unique_id": "device_"+devl+"_"+key, "state_topic": device_sensor_t+devl+"_bowl/state", "value_template": "{{value_json."+key+"}}"}
+                    ret=mc.publish(device_sensor_t+devl+'_'+key+'/config',json.dumps(configmessage))
+                ret=mc.publish(device_sensor_t+devl+'_bowl/state',json.dumps(bowl))
             else:
-                configmessage={"name": device[0]+" bowl target", "icon": "mdi:bowl", "unique_id": "device_"+device[0].lower()+"_bowl_target", "state_topic": device_sensor_t+device[0].lower()+"_bowl_target/state"}
-                ret=mc.publish(device_sensor_t+device[0].lower()+'_bowl_target/config',json.dumps(configmessage))
-                ret=mc.publish(device_sensor_t+device[0].lower()+'_bowl_target/state',str(device[9]))
+                configmessage={"name": dev+" bowl target", "icon": "mdi:bowl", "unique_id": "device_"+devl+"_bowl_target", "state_topic": device_sensor_t+devl+"_bowl_target/state"}
+                ret=mc.publish(device_sensor_t+devl+'_bowl_target/config',json.dumps(configmessage))
+                ret=mc.publish(device_sensor_t+devl+'_bowl_target/state',str(device[9]))
 
 print("Load Pets from pethublocal.db and init Home Assistant MQTT discovery configuration")
 for pet in pethubinit['pets']:
@@ -171,10 +208,10 @@ for pet in pethubinit['pets']:
                 configmessage={"name": pet[0]+" "+key, "icon": "mdi:"+Animal(pet[1]).name, "unique_id": "pet_"+pet[0].lower()+"_"+key, "state_topic": pet_t+pet[0].lower()+"_bowl/state", "unit_of_measurement": "g", "value_template": "{{value_json."+key+"}}"}
                 ret=mc.publish(pet_t+pet[0].lower()+'_'+key+'/config',json.dumps(configmessage))
             ret=mc.publish(pet_t+pet[0].lower()+'_bowl/state',json.dumps(bowlstate))
-        else:
-            configmessage={"name": device[0]+" bowl target", "icon": "mdi:bowl", "unique_id": "device_"+device[0].lower()+"_bowl_target", "state_topic": device_sensor_t+device[0].lower()+"_bowl_target/state"}
-            ret=mc.publish(pet_t+pet[0].lower()+'_bowl/config',json.dumps(configmessage))
-            ret=mc.publish(pet_t+pet[0].lower()+'_bowl/state',str(pet[4]))
+#        else:
+            #configmessage={"name": device[0]+" bowl target", "icon": "mdi:bowl", "unique_id": "device_"+devl+"_bowl_target", "state_topic": device_sensor_t+devl+"_bowl_target/state"}
+            #ret=mc.publish(pet_t+pet[0].lower()+'_bowl/config',json.dumps(configmessage))
+            #ret=mc.publish(pet_t+pet[0].lower()+'_bowl/state',str(pet[4]))
 
 #Publish callback
 print("Subscribe to pethublocal and home assistant topics")
