@@ -10,14 +10,14 @@ from pethubconst import *
 #MQTT for pethublocal/hub and home assistant where the hub messages go, the broker sends the messages from the docker hub mqtt instance to your home assistant instance in the mosquitto.conf broker setting
 mqtthost = '192.168.1.250'
 mqttport = 1883
-hubmsg_t = 'pethublocal/hub/messages'
+hubmsg_t = 'pethublocal/messages'
 pet_t = 'homeassistant/sensor/pethub/pet_'
 device_sensor_t = 'homeassistant/sensor/pethub/device_'
 device_switch_t = 'homeassistant/switch/pethub/device_'
 
 # Feeder
 def on_hub_message(client, obj, msg):
-    print("Hub")
+    print("Hub  " + msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
 
 # Pet Door
 def on_petdoor_message(client, obj, msg):
@@ -73,7 +73,7 @@ def on_catdoor_message(client, obj, msg):
 
 # Missed Message.. this shouldn't happen so log it.
 def on_message(client, obj, msg):
-    print("OnMessage "  + msg.topic+" "+str(msg.qos)+" "+str(msg.payload))
+    print("**Not Matched** "  + msg.topic+" "+str(msg.qos)+" "+str(msg.payload))
 
 def on_publish(cl,data,res):
     #print("data published ", res)
@@ -96,7 +96,7 @@ for device in pethubinit['devices']:
         print("Loading Hub: ", device)
         mc.message_callback_add(hubmsg_t, on_hub_message)
 
-    if device[1] == 3 or device[1] == 7: #Pet Door (3) or Cat Door (7)
+    if device[1] == 3: #Pet Door (3) or Cat Door (7)
         print("Loading Pet Door: ", device)
         mc.message_callback_add(hubmsg_t + '/' + device[2], on_petdoor_message)
         #Not setting the state as a sensor anymore
@@ -156,13 +156,13 @@ for device in pethubinit['devices']:
 print("Load Pets from pethublocal.db and init Home Assistant MQTT discovery configuration")
 for pet in pethubinit['pets']:
     if pet[3] == 3: #Pet Door
-        print("Loading Pet: " + pet[0] + " for feeder " + pet[2] )
+        print("Loading Pet: " + pet[0] + " for pet door " + pet[2] )
         configmessage={"name": pet[0], "icon": "mdi:"+Animal(pet[1]).name, "unique_id": "pet_"+pet[0].lower(), "state_topic": pet_t+pet[0].lower()+"/state"}
         ret=mc.publish(pet_t+pet[0].lower()+'/config',json.dumps(configmessage))
         ret=mc.publish(pet_t+pet[0].lower()+'/state',str(AnimalState(pet[4]).name))
 
     if pet[3] == 4: #Feeder
-        print("Loading Pet: " + pet[0] + " for pet door " + pet[2] )
+        print("Loading Pet: " + pet[0] + " for feeder " + pet[2] )
         feederarray = ast.literal_eval(pet[4])
         if len(feederarray)==2:
             bowlstate = {"left":str(feederarray[0]),"right":str(feederarray[1])}
