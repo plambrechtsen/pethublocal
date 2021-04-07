@@ -842,7 +842,7 @@ def generatemessage(devicetype,device,operation,state):
             devcounter = devicecounter(lockingmode[0],"-1","-2") #Iterate the send counter for the device
             msgstr = msgstr.replace('CC', hb(devcounter['send'])) # Replace device counter in the record
             msgstr = msgstr.replace('TT TT TT TT', " ".join(hubts[i:i+2] for i in range(0, len(hubts), 2))) # Timestamp
-            return {"topic":"pethublocal/messages/"+lockingmode[0], "msg":buildmqttsendmessage(msgstr)}
+            return {"topic":"pethublocal/messages/"+lockingmode[0], "msg":buildmqttsendmessage("127 "+msgstr)} #Need to prefix the message with "127 "
         return buildmqttsendmessage(msgstr)
 
     else:
