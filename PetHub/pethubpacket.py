@@ -30,10 +30,10 @@ from datetime import date, timedelta
 from pethubconst import *
 
 #Debugging mesages
-PrintFrame = False #Print the before and after xor frame
+PrintFrame = True #Print the before and after xor frame
 PrintFrameDbg = False #Print the frame headers
-Print126Frame = False #Debug the 2A / 126 feeder frame
-Print127Frame = False #Debug the 2D / 127 feeder frame
+Print126Frame = True #Debug the 2A / 126 feeder frame
+Print127Frame = True #Debug the 2D / 127 feeder frame
 Print132Frame = False #Debug the 3C / 132 hub and door frame
 Print2Frame = False   #Debug the 2 frame
 
@@ -251,17 +251,22 @@ def parseframe(device, value):
             frameresponse["MSG"]=tohex(value[9:12])
         if Print126Frame:
             print(msg)
-    elif value[0] == 0x11: #Provision chip to device
-        tag = feederhextochip(tohex(value[8:15]))
-        curs.execute('select name from pets where tag=(?)', ([tag]))
-        petval = curs.fetchone()
-        if (petval):
-            frameresponse["Animal"]=petval[0]
-        else:
-            frameresponse["Animal"]=tag
-        frameresponse["OP"]="Chip"
-        frameresponse["ChipState"]=ProvChipState(value[17]).name
-        frameresponse["MSG"]=tohex(value)
+    elif value[0] == 0x11: #Provision chip to device and set lock states on cat flap.
+        if value[14] == 0x07: #Set Cat Flap Lock State
+            frameresponse["OP"]="LockState"
+            frameresponse['Lock']=CatFlapLockState(int(value[15])).name
+            frameresponse["MSG"]=tohex(value)
+        if value[14] == 0x03: #Provision chip to Feeder (and probably cat flap too)
+            tag = feederhextochip(tohex(value[8:15]))
+            curs.execute('select name from pets where tag=(?)', ([tag]))
+            petval = curs.fetchone()
+            if (petval):
+                frameresponse["Animal"]=petval[0]
+            else:
+                frameresponse["Animal"]=tag
+            frameresponse["OP"]="Chip"
+            frameresponse["ChipState"]=ProvChipState(value[17]).name
+            frameresponse["MSG"]=tohex(value)
     elif value[0] == 0x13: #Pet Movement through cat door
         tag = feederhextochip(tohex(value[18:25]))
         curs.execute('select name from pets where tag=(?)', ([tag]))
@@ -812,18 +817,60 @@ def generatemessage(devicetype,device,operation,state):
         msgstr = msgstr.replace('TTTTTTTT', feedertimestampfromnow()) # Timestamp
         return msgstr
 
-    elif type=="petdoor":
-        if operation == "settime":
-            #Set the time, packet 34 or 22 in hex
-            msgstr = "022202HHMM"
-            msgstr = msgstr.replace('HHMM', time)
-            return msgstr
-        if operation == "enablecurfew":
-            #Set the time, packet 36 or 24 in hex
-            msgstr = "02240104"
-            return msgstr
+    elif devicetype=="catflap":
+        if operation == "dumpstate": #Dump all memory registers from 0 to 630
+            msgstr = "TBC"
+        if operation == "inbound" or operation == "outbound":
+            curs.execute('select mac_address, lockingmode from devices join doors using (mac_address) where name like (?)', ([device]))
+            lockingmode = curs.fetchone()
+            #print("Current locking mode: " + lockingmode[0])
+            if (operation == "outbound" and state == "OFF" and lockingmode[1] == 1) or (operation == "inbound" and state == "OFF" and lockingmode[1] == 2):
+                #Going to Lock State 0 - Unlocked
+                msgstr = "11 00 CC 00 TT TT TT TT 00 00 00 00 00 00 07 06 00 02"
+            elif (operation == "outbound" and state == "ON" and lockingmode[1] == 0) or (operation == "inbound" and state == "OFF" and lockingmode[1] == 3):
+                #Going to Lock State 1 - Keep pets in
+                msgstr = "11 00 CC 00 TT TT TT TT 00 00 00 00 00 00 07 03 00 02"
+            elif (operation == "outbound" and state == "OFF" and lockingmode[1] == 3) or (operation == "inbound" and state == "ON" and lockingmode[1] == 0):
+                #Going to Lock State 2 - Keep pets out
+                msgstr = "11 00 CC 00 TT TT TT TT 00 00 00 00 00 00 07 05 00 02"
+            elif (operation == "outbound" and state == "ON" and lockingmode[1] == 2) or (operation == "inbound" and state == "ON" and lockingmode[1] == 1):
+                #Going to Lock State 3 - Lock both ways
+                msgstr = "11 00 CC 00 TT TT TT TT 00 00 00 00 00 00 07 04 00 02"
+            else:
+                msgstr = "11 00 CC 00 TT TT TT TT 00 00 00 00 00 00 07 06 00 02"
+            hubts = feedertimestampfromnow()
+            devcounter = devicecounter(lockingmode[0],"-1","-2") #Iterate the send counter for the device
+            msgstr = msgstr.replace('CC', hb(devcounter['send'])) # Replace device counter in the record
+            msgstr = msgstr.replace('TT TT TT TT', " ".join(hubts[i:i+2] for i in range(0, len(hubts), 2))) # Timestamp
+            return {"topic":"pethublocal/messages/"+lockingmode[0], "msg":buildmqttsendmessage(msgstr)}
+        return buildmqttsendmessage(msgstr)
+
     else:
         print("Unknown type")
+
+#Update Device Counter
+def devicecounter(mac_address,send,retrieve):
+    #If the send or retrieve counters are -1 we take the current value and iterate it and -2 return the current value
+    curs.execute('select send,retrieve from devicecounter where mac_address=(?)', ([mac_address]))
+    devcount = curs.fetchone()
+    devc = {"send":-3, "retrieve":-3}
+    if send == "-2":
+        devc['send'] = devcount[0]
+    if send == "-1":
+        devc['send'] = devcount[0]+1
+    if send >= "0":
+        devc['send'] = send
+    if retrieve == "-2":
+        devc['retrieve'] = devcount[1]
+    if retrieve == "-1":
+        devc['retrieve'] = devcount[1]+1
+    if retrieve >= "0":
+        devc['retrieve'] = retrieve
+    cur = conn.cursor()
+    upd = 'UPDATE devicecounter SET send=' + str(devc['send']) + ', retrieve=' + str(devc['retrieve']) + ' WHERE mac_address = "' + mac_address + '"'
+    cur.execute(upd)
+    conn.commit()
+    return devc
 
 def updatedb(tab,dev,col,val):
     cur = conn.cursor()

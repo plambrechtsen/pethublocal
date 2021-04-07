@@ -65,14 +65,21 @@ class FeederBowls(SureEnum): # Feeder Close Delay speed
     Double        = 2   # Normal delay
 
 class LockState(SureEnum): # Lock State IDs.
-    UNLOCKED        = 0
-    LOCKED_IN       = 1
-    LOCKED_OUT      = 2
-    LOCKED_ALL      = 3
+    Unlocked        = 0
+    KeepIn          = 1
+    KeepOut         = 2
+    Locked          = 3
     CURFEW          = 4
     CURFEW_LOCKED   = -1
     CURFEW_UNLOCKED = -2
     CURFEW_UNKNOWN  = -3
+
+class CatFlapLockState(SureEnum): # Lock State IDs.
+    Unlocked        = 6
+    KeepIn          = 3
+    KeepOut         = 5
+    Locked          = 4
+
 
 class LockedOutState(SureEnum): # Locked Out State for preventing animals coming in
     NORMAL          = 2  # Allow pets in

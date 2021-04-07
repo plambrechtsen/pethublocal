@@ -97,8 +97,28 @@ def on_feeder_message(client, obj, msg):
 
 # Cat Door
 def on_catdoor_message(client, obj, msg):
-    print("Cat Door " + msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
-
+    print("Cat Flap " + msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+    pethub = phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+    for values in pethub['message'][-1:][0].values():
+        if "PetMovement" in values: #Pet Movement 
+            mv = next((fm for fm in pethub['message'] if fm['OP'] == "PetMovement"), None)
+            ret=mc.publish(pet_t + mv['Animal'].lower() + '/state',mv['Direction'])
+        if "LockState" in values: #Lock state
+            mv = next((fm for fm in pethub['message'] if fm['OP'] == "LockState"), None)
+            if mv['Lock'] in ["LOCKED_IN","LOCKED_ALL"]:
+                outlock = "ON"
+            else:
+                outlock = "OFF"
+            if mv['Lock'] in ["LOCKED_OUT","LOCKED_ALL"]:
+                inlock = "ON"
+            else:
+                inlock = "OFF"
+            ret=mc.publish(device_switch_t+devl+"_lock_outbound/state",outlock)
+            ret=mc.publish(device_switch_t+devl+"_lock_inbound/state",inlock)
+            topicsplit = msg.topic.split("/")
+            print(topicsplit[-1])
+            lockmsg = phlp.updatedb('doors',topicsplit[-1],'lockingmode', mv['Lock'])
+            print(lockmsg)
 
 # Missed Message.. this shouldn't happen so log it.
 def on_message(client, obj, msg):
