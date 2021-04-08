@@ -20,7 +20,7 @@
    Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 """
 
-import binascii, struct, time, sys, sqlite3, json
+import binascii, struct, time, sys, sqlite3, json, glob
 
 from datetime import datetime
 from operator import xor
@@ -38,14 +38,16 @@ Print132Frame = False #Debug the 3C / 132 hub and door frame
 Print2Frame = False   #Debug the 2 frame
 
 #Import xor key from pethubpacket.xorkey and make sure it is sane.
-xorfile=Path('pethubpacket.xorkey').read_text()
-if len(xorfile) > 20 and len(xorfile) % 2 == 0:
-    xorkey=bytearray.fromhex(xorfile)
-else:
-    sys.exit("Corrupted pethubpacket.xorkey file, make sure the length is an even set of bytes")
+for file in glob.glob("pethubpacket.xorkey"):
+    xorfile=Path(file).read_text()
+    if len(xorfile) > 20 and len(xorfile) % 2 == 0:
+        xorkey=bytearray.fromhex(xorfile)
+    else:
+        sys.exit("Corrupted pethubpacket.xorkey file, make sure the length is an even set of bytes")
 
 #Load PetHubLocal database
-conn=sqlite3.connect('pethublocal.db')
+for sqlitefile in glob.glob("pethublocal.db"):
+    conn=sqlite3.connect(sqlitefile)
 curs=conn.cursor()
 conn.row_factory = sqlite3.Row
 

@@ -44,7 +44,7 @@ services:
     volumes:
       - './output/pethub:/pethub/out'
       - '/etc/localtime:/etc/localtime:ro'
-      - './source:/code/source'
+      - './source:/code'
     networks:
       - local_net
 
