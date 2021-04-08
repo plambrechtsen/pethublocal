@@ -1,19 +1,19 @@
-version: "3.3"
+version: "3.5"
 services:
 #MQTT Server based off mosquitto Docker file and configuration in /default
   mqtt:
     build: mqtt
     container_name: local_mqtt
+    env_file: .env
     volumes:
       - './output/mqtt:/mosquitto'
     ports:
-#      - "192.168.20.241:1883:1883"
-#      - "192.168.20.241:8883:8883"
-      - "1883:1883"
-      - "8883:8883"
+      - "${BINDIP}1883:1883"
+      - "${BINDIP}8883:8883"
 #Private network called surepet to bridge between mqtt and mqtt_msgs so mosquitto_sub can subscribe to messages.
     networks:
       - local_net
+
 #mosquitto_sub that subscribes to the topic and then writes messages to /mosquitto/msgs folder, also uses surepet network to communicate to mqtt
   msgs:
     build: msgs
@@ -26,15 +26,17 @@ services:
       - '/etc/localtime:/etc/localtime:ro'
     networks:
       - local_net
+
 #Flask python web server that listens on port 443 for the hub to connect to on boot, also downloads the creds on the first attempt from the cloud service.
   web:
     build: web
     container_name: local_web
+    env_file: .env
     volumes:
       - './output/web:/web/creds'
     ports:
-#      - "192.168.20.241:443:443"
-      - "443:443"
+      - "${BINDIP}443:443"
+
 #pethub Python code using paho mqtt
   pethub:
     build: pethub
@@ -42,8 +44,9 @@ services:
     volumes:
       - './output/pethub:/pethub/out'
       - '/etc/localtime:/etc/localtime:ro'
-#    networks:
-#      - local_net
+      - './source:/code/source'
+    networks:
+      - local_net
 
 #Surepet network used between mqtt_msgs and mqtt
 networks:

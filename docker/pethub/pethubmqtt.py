@@ -1,15 +1,32 @@
 #import logging
-import json, ast
-import pethubpacket as phlp
+import json, ast, os
+import source.pethubpacket as phlp
 import paho.mqtt.client as mqtt
-from pethubconst import *
+from source.pethubconst import *
+
 
 #logger = logging.getLogger(__file__)
 #logging.basicConfig(level=logging.INFO)
 
 #MQTT for pethublocal/hub and home assistant where the hub messages go, the broker sends the messages from the docker hub mqtt instance to your home assistant instance in the mosquitto.conf broker setting
-mqtthost = '192.168.1.250'
-mqttport = 1883
+if os.environ.get('HAMQTTIP') is not None:
+    hamqttip = os.environ.get('HAMQTTIP')
+    print("HAMQTTIP set so connecting to ",hamqttip)
+    #If no port was specified connect to 1883
+    if ':' in hamqttip:
+        hamqttipsplit = hamqttip.split(':')
+        mqtthost = hamqttipsplit[0]
+        mqttport = int(hamqttipsplit[1])
+    else:
+        mqtthost = hamqttip
+        mqttport = 1883
+    print("HAMQTT Host",mqtthost)
+    print("HAMQTT Port",mqttport)
+else:
+    print("HAMQTTIP has not been set so connecting to internal mqtt instance")
+    mqtthost = 'mqtt' #Connect to internal mqtt instance if the home assistant one wasn't specified in the env
+    mqttport = 1883
+
 hubmsg_t = 'pethublocal/messages'
 pet_t = 'homeassistant/sensor/pethub/pet_'
 device_sensor_t = 'homeassistant/sensor/pethub/device_'
