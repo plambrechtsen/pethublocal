@@ -41,6 +41,7 @@ services:
   pethub:
     build: pethub
     container_name: local_pethub
+    env_file: .env
     volumes:
       - './output/pethub:/pethub/out'
       - '/etc/localtime:/etc/localtime:ro'
