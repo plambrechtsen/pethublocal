@@ -47,7 +47,7 @@ async def petlocaldb():
             sqlcmd(conn, "CREATE TABLE tagmap(mac_address TEXT, deviceindex INTEGER, tag TEXT, UNIQUE (mac_address, deviceindex) ON CONFLICT REPLACE );")
             sqlcmd(conn, "CREATE TABLE pets(tag TEXT, name TEXT, species INTEGER );")
             sqlcmd(conn, "CREATE TABLE petstate(tag TEXT, mac_address TEXT, timestamp TEXT, state BLOB );")
-            sqlcmd(conn, "CREATE TABLE devicestate(mac_address TEXT, offset INTEGER, data BLOB, UNIQUE (mac_address, offset) ON CONFLICT REPLACE );")
+            sqlcmd(conn, "CREATE TABLE devicestate(mac_address TEXT, offset INTEGER, length INTEGER, data TEXT, UNIQUE (mac_address, offset, length) ON CONFLICT REPLACE );")
         else:
             print("Error! cannot create the database connection.")
 
