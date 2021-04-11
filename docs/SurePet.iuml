@@ -1,6 +1,5 @@
 plantuml
 @startuml
-    skinparam monochrome reverse
     Hub <-> NTP : Get the time
     group DNS
     Hub -> DNS : Lookup hub.api.surehub.io
