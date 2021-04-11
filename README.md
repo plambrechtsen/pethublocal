@@ -16,15 +16,22 @@ Working on adding support for the following devices if others in the community c
 - Cat Flap Connect
 - Felaqua Connect
 
-## PetHub
-
-Python code used for interpreting the Hub messages that are sent from the hub over MQTT as well as supporting decrypting the 802.14.5 / MiWi packets sent over the air from the devices to the hub and converting them into a consistent message that is more useful than a stream of hex bytes. You will typically need to copy this whole directory into the directory where other python code that depends on it.
-
 ## Docker
 
-There are two folders under docker.
-- Local is a docker compose stack that spins up a web server, MQTT server and pethub to simulate the cloud backend translate the messages
-- Zigsniff is a docker compose that uses a Zigbee CC2531 to sniff all traffic and then log it to a wireshark pcap file then translate it using PetHub.
+This is the main code you are looking for, it is a docker compose stack that should be self contained and able to integrate directly into home assistant.
+I have built it on a Debian Buster image on both an x64 and ODroid C2 which is similar to a Raspberry Pi 4.
+It is built to be modular so if you want to pick up components such as the MQTT configuration and integrate that into your existing Mosquito MQTT host it should be very straight forward.
+Have a read of the readme to see the setup tasks.
+
+### Docker/source
+This is the main python code used for interpreting the Hub messages that are sent from the hub over MQTT as well as supporting decrypting the 802.14.5 / MiWi packets sent over the air from the devices to the hub and converting them into a consistent message that is more useful than a stream of hex bytes. 
+This directory is used by the pethub docker image when it starts pethubmqtt.py to talk to the single MQTT broker.
+
+## Zigsniff
+
+Zigsniff is a docker compose that uses a Zigbee / 802.14.5 CC2531 to sniff all traffic and then log it to a wireshark pcap file then translate it using PetHub.
+This is really helpful for analysis of network traffic from the hub to the remote devices.
+It doesn't need to run as a docker container, and if you check out 
 
 ## Docs
 
