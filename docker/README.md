@@ -52,7 +52,7 @@ pip3 install surepy
 edit mkpetlocaldb.py
 python3 mkpetlocaldb.py
 ```
-That uses surepy to make the `/me/start` api call and create a sqlite3. Check out the database using sqlite3:
+That uses surepy to make the `/me/start` api call to the surepet cloud service and create a sqlite3 database for local use. Check out the database using sqlite3:
 ```
 sqlite3 pethublocal.db
 ```
@@ -62,7 +62,7 @@ The database, plus surepetpacket need to be in the `docker/source` directory for
 
 ## Step 4 - Update the config.ini
 
-Edit the `/docker/config.ini`, and adjust the Home Assistant IP addresses for the upstream MQTT instance you want to connect to.
+Copy `/docker/config.ini.sample` to `/docker/config.ini`, and adjust the Home Assistant IP addresses for the upstream MQTT instance you want to connect to.
 
  ```
 #Pet Hub Local Environment Configuration File
