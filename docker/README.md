@@ -19,11 +19,11 @@ As per the below standard flow it is:
 ## Pet Hub Local Hub altered boot process
 
 As per the below the altered flow is:
-- Query DNS but get the response for hub.api.surehub.io to point to the local docker container or webserver
-- Local Web on first connection proxies the request to the Cloud Web to retrieve the Credentials file
-- Alters credentials file to point to local MQTT endpoint and have a consistent topic name rather than UUID value and saves original and new credentials file locally
-- Responds to Hub with altered credentials file
-- Connect to local MQTT with client certificate but it doesn't validate the certificate
+- Query DNS but get the response for `hub.api.surehub.io` that points to the local docker compose stack or at least the python flask webserver in `/docker/web`
+- Local Web on first connection proxies the request to the Cloud Web to retrieve the Credentials file, you may want to update `/docker/web/app.py` to reflect the actual IP address of `hub.api.surehub.io` if it changes, as the current configuration has it hard-coded to `54.146.28.80` which will be moved into the `config.ini` at some point.
+- The web/app.py creates an altered credentials file to point the hub to local MQTT TLS endpoint on 8883 and have a consistent topic name rather than UUID value and saves original and new credentials file locally. Read the app.py to see which fields are updated and if you want to point to an alternative DNS name for the MQTT endpoint.
+- Responds to Hub with altered credentials file.
+- The hub then connects to local MQTT with client certificate that is embedded in the credentials file but it doesn't need to validate the certificate as we know it is the hub.
 
 ![PetHubLocal](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/plambrechtsen/pethublocal/main/docs/Pethublocal.iuml)
 
