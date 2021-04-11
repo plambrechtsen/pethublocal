@@ -4,7 +4,7 @@ services:
   mqtt:
     build: mqtt
     container_name: local_mqtt
-    env_file: .env
+    env_file: config.ini
     volumes:
       - './output/mqtt:/mosquitto'
     ports:
@@ -31,7 +31,7 @@ services:
   web:
     build: web
     container_name: local_web
-    env_file: .env
+    env_file: config.ini
     volumes:
       - './output/web:/web/creds'
     ports:
@@ -41,7 +41,7 @@ services:
   pethub:
     build: pethub
     container_name: local_pethub
-    env_file: .env
+    env_file: config.ini
     volumes:
       - './output/pethub:/pethub/out'
       - '/etc/localtime:/etc/localtime:ro'
