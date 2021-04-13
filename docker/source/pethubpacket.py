@@ -288,8 +288,6 @@ def parseframe(device, value):
             else:
                 frameresponse["OP"]="Unknown"
                 frameresponse["MSG"]=tohex(value)
-            
-
     elif value[0] == 0x13: #Pet Movement through cat door
         tag = feederhextochip(tohex(value[18:25]))
         curs.execute('select name from pets where tag=(?)', ([tag]))
@@ -298,7 +296,9 @@ def parseframe(device, value):
             frameresponse["Animal"]=petval[0]
         else:
             frameresponse["Animal"]=tag
-        frameresponse["Direction"]=CatFlapDirection(value[17]).name
+        AnimalDirection=(value[16] << 8) + value[17]
+        print(AnimalDirection)
+        frameresponse["Direction"]=CatFlapDirection(AnimalDirection).name
         if frameresponse["Direction"] != "Status":
             frameresponse["OP"]="PetMovement"
         else:

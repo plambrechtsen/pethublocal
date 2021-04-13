@@ -188,7 +188,7 @@ for device in pethubinit['devices']:
         print("Loading Hub: ", device)
         mc.message_callback_add(hubmsg_t, on_hub_message)
 
-    if device[1] == 3: #Pet Door (3) or Cat Door (7)
+    if device[1] == 3 or device[1] == 7: #Pet Door (3) or Cat Door (7)
         print("Loading Pet Door: ", device)
         mc.message_callback_add(hubmsg_t + '/' + device[2], on_petdoor_message)
         mc.message_callback_add(device_switch_t+devl+"_lock_inbound/set", on_petdoor_lock_message)

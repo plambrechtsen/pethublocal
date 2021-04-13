@@ -121,9 +121,11 @@ class ProvChipState(SureEnum): # Chip Provisioned State
     LOCK            = 2
 
 class CatFlapDirection(SureEnum): # Pet Movement on Cat Flap coming in or going out.
-    Out             = 0
-    In              = 1
-    Status          = 2
+    Out             = 0x0000
+    In              = 0x0101
+    LookedIn        = 0x0201
+    LookedOut       = 0x0200
+    Status          = 0x0202
 
 class Animal(SureEnum): # Animal mdi mapping
     alien        = 0
