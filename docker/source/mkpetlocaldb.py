@@ -1,9 +1,11 @@
-import json, sqlite3
-import asyncio
+import json, sqlite3, os, asyncio
 import surepy.client as spc
 import surepy.const as spco
 
 from sqlite3 import Error
+
+#Debugging mesages
+PrintDebug = True #Print debugging messages
 
 def create_connection(db_file):
     conn = None
@@ -23,13 +25,26 @@ def sqlcmd(conn, sql_cmd):
         print(e)
 
 async def petlocaldb():
-    user="**Portal Email Address**"
-    password="**Portal Password**"
+    if os.environ.get('CLOUDUSERNAME') is not None:
+        user=os.environ.get('CLOUDUSERNAME')
+    else:
+        user="**Update email address for cloud here**"
+    if "**" in user:
+        print("Username has not been set, either set CLOUDUSERNAME environment or update file")
+        exit(1)
+    if os.environ.get('CLOUDPASSWORD') is not None:
+        password=os.environ.get('CLOUDPASSWORD')
+    else:
+        password="**securelongpassword**"
+    if "**" in password:
+        print("Password has not been set, either set CLOUDPASSWORD environment or update file")
+        exit(1)
     sp = spc.SureAPIClient(email=user, password=password)
     await sp.call(method="GET", resource=spco.MESTART_RESOURCE)
     if data := sp.resources[spco.MESTART_RESOURCE].get("data", {}):
         #Dump response
-        #print(data)
+        if PrintDebug:
+            print(data)
         # Create pet hub local tables
         conn = create_connection('pethublocal.db')
         if conn is not None:
@@ -42,14 +57,15 @@ async def petlocaldb():
             sqlcmd(conn, "DROP TABLE petstate;")
             sqlcmd(conn, "CREATE TABLE devices(mac_address TEXT, product_id INTEGER, name TEXT, serial_number TEXT, battery TEXT, device_rssi TEXT, hub_rssi TEXT, version BLOB);")
             sqlcmd(conn, "CREATE TABLE hubs(mac_address TEXT, led_mode INTEGER, pairing_mode INTEGER );")
-            sqlcmd(conn, "CREATE TABLE doors(mac_address TEXT, curfewenabled INTEGER, lock_time TEXT, unlock_time TEXT, lockingmode INTEGER );")
-            sqlcmd(conn, "CREATE TABLE feeders(mac_address TEXT, bowltarget1 INTEGER, bowltarget2 INTEGER, bowltype INTEGER, close_delay INTEGER );")
+            sqlcmd(conn, "CREATE TABLE doors(mac_address TEXT, curfewenabled INTEGER, lock_time TEXT, unlock_time TEXT, lockingmode INTEGER, custommode TEXT);")
+            sqlcmd(conn, "CREATE TABLE feeders(mac_address TEXT, bowltype INTEGER, bowl1 INTEGER, bowl2 INTEGER, bowltarget1 INTEGER, bowltarget2 INTEGER, close_delay INTEGER );")
             sqlcmd(conn, "CREATE TABLE tagmap(mac_address TEXT, deviceindex INTEGER, tag TEXT, UNIQUE (mac_address, deviceindex) ON CONFLICT REPLACE );")
             sqlcmd(conn, "CREATE TABLE pets(tag TEXT, name TEXT, species INTEGER );")
             sqlcmd(conn, "CREATE TABLE petstate(tag TEXT, mac_address TEXT, timestamp TEXT, state BLOB );")
             sqlcmd(conn, "CREATE TABLE devicestate(mac_address TEXT, offset INTEGER, length INTEGER, data TEXT, UNIQUE (mac_address, offset, length) ON CONFLICT REPLACE );")
         else:
             print("Error! cannot create the database connection.")
+            exit(1)
 
         tags = data['tags']
         devices = data['devices']
@@ -121,33 +137,50 @@ async def petlocaldb():
                 conn.commit()
 
             if product_id == 3: #Pet Door
+                #Curfew mode
                 if 'enabled' in device['control']['curfew']:
                     curfewenabled = device['control']['curfew']['enabled']
                     lock_time = device['control']['curfew']['lock_time']
                     unlock_time = device['control']['curfew']['unlock_time']
                 else:
-                    curfewenabled = 0
-                    lock_time = ""
-                    unlock_time = ""
+                    if 'curfew' in device['status']:
+                        curfewenabled = device['status']['curfew']['enabled']
+                        lock_time = device['status']['curfew']['lock_time']
+                        unlock_time = device['status']['curfew']['unlock_time']
+                    else:
+                        curfewenabled = 0
+                        lock_time = ""
+                        unlock_time = ""
 
-                lockingmode = device['control']['locking']
-                c.execute("INSERT INTO doors values((?), (?), (?), (?), (?));", (mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
+                #Locking mode
+                if 'locking' in device['control']:
+                    lockingmode = device['control']['locking']
+                else:
+                    if 'locking' in device['status']:
+                        lockingmode = device['status']['locking']['mode']
+                    else:
+                        lockingmode = 0
+                c.execute("INSERT INTO doors values((?), (?), (?), (?), (?), '000000');", (mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
                 conn.commit()
 
             if product_id == 4: #Feeder
-                bowltarget1 = device['control']['bowls']['settings'][0]['target']
-                bowltype = device['control']['bowls']['type']
                 if bowltype == 4:
                     #Two bowls
+                    bowltarget1 = device['control']['bowls']['settings'][0]['target']
                     bowltarget2 = device['control']['bowls']['settings'][1]['target']
+                    bowltype = 2
                 elif bowltype == 1:
-                    #One bowls
+                    #One bowl
+                    bowltarget1 = device['control']['bowls']['settings'][0]['target']
                     bowltarget2 = 0
+                    bowltype = 1
                 else:
                     #Unknown value
+                    bowltarget1 = 0
                     bowltarget2 = 0
+                    bowltype = 0
                 close_delay = device['control']['lid']['close_delay']
-                c.execute("INSERT INTO feeders values((?), (?), (?), (?), (?));", (mac_address, bowltarget1, bowltarget2, bowltype, close_delay))
+                c.execute("INSERT INTO feeders values((?), (?), 0, 0, (?), (?), (?));", (mac_address, bowltype, bowltarget1, bowltarget2, close_delay))
                 conn.commit()
 
             if product_id == 6: #Cat Door
@@ -159,8 +192,16 @@ async def petlocaldb():
                     curfewenabled = 0
                     lock_time = ""
                     unlock_time = ""
-                lockingmode = device['control']['locking']
-                c.execute("INSERT INTO doors values((?), (?), (?), (?), (?));", (mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
+
+                #Locking mode
+                if 'locking' in device['control']:
+                    lockingmode = device['control']['locking']
+                else:
+                    if 'locking' in device['status']:
+                        lockingmode = device['status']['locking']['mode']
+                    else:
+                        lockingmode = 0
+                c.execute("INSERT INTO doors values((?), (?), (?), (?), (?), '000000');", (mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
                 conn.commit()
 
             if 'tags' in device:

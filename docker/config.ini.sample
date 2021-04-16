@@ -2,7 +2,7 @@
 
 #Sure Pet Cloud Login to download configuration
 CLOUDUSERNAME=**emailaddress**
-CLOUDPASSWORD=securelongpassword
+CLOUDPASSWORD=**securelongpassword**
 
 #Home Assistant MQTT Upstream configuration
 HAMQTTIP=192.168.1.250

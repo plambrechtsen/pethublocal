@@ -28,6 +28,7 @@ from pathlib import Path
 from enum import IntEnum
 from datetime import date, timedelta
 from pethubconst import *
+from box import Box
 
 #Debugging mesages
 PrintFrame = True #Print the before and after xor frame
@@ -36,6 +37,7 @@ Print126Frame = True #Debug the 2A / 126 feeder frame
 Print127Frame = True #Debug the 2D / 127 feeder frame
 Print132Frame = True #Debug the 3C / 132 hub and door frame
 Print2Frame = False   #Debug the 2 frame
+PrintDebug = False   #Debug the 2 frame
 
 #Import xor key from pethubpacket.xorkey and make sure it is sane.
 for file in glob.glob("pethubpacket.xorkey"):
@@ -46,10 +48,18 @@ for file in glob.glob("pethubpacket.xorkey"):
         sys.exit("Corrupted pethubpacket.xorkey file, make sure the length is an even set of bytes")
 
 #Load PetHubLocal database
-for sqlitefile in glob.glob("pethublocal.db"):
-    conn=sqlite3.connect(sqlitefile)
+def dict_factory(cursor, row): #Return results as a dict key value pair
+    d = {}
+    for idx, col in enumerate(cursor.description):
+        d[col[0]] = row[idx]
+    return Box(d)
+
+#for sqlitefile in glob.glob("pethublocal.db"):
+#    conn=sqlite3.connect(sqlitefile)
+conn=sqlite3.connect("pethublocal.db")
+conn.row_factory = dict_factory
 curs=conn.cursor()
-conn.row_factory = sqlite3.Row
+#conn.row_factory = sqlite3.Row
 
 #Create hex timestamp
 ts = hex(round(datetime.utcnow().timestamp()))[2:]
@@ -151,11 +161,10 @@ def petnamebydevice(mac_address, deviceindex):
     curs.execute('select tag from tagmap where mac_address=(?) and deviceindex=(?)', (mac_address, deviceindex))
     tagval = curs.fetchone()
     if (tagval):
-        tag=str(tagval[0])
-        curs.execute('select name from pets where tag=(?)', ([tag]))
+        curs.execute('select name from pets where tag=(?)', ([tagval.tag]))
         petval = curs.fetchone()
         if (petval):
-            petname=petval[0]
+            petname=petval.name
         else:
             petname="Unknown"
     else:
@@ -257,14 +266,14 @@ def parseframe(device, value):
     elif value[0] == 0x11: #Provision chip to device and set lock states on cat flap.
         curs.execute('select product_id from devices where mac_address=(?)', ([device]))
         devtype = curs.fetchone()
-        if devtype[0] == 4:
+        if devtype.product_id == 4:
             print("Feeder")
             if value[15] == 0x02: #Provisioned Chip on feeder
                 tag = feederhextochip(tohex(value[8:15]))
                 curs.execute('select name from pets where tag=(?)', ([tag]))
                 petval = curs.fetchone()
                 if (petval):
-                    frameresponse["Animal"]=petval[0]
+                    frameresponse["Animal"]=petval.name
                 else:
                     frameresponse["Animal"]=tag
                 frameresponse["OP"]="Chip"
@@ -277,7 +286,7 @@ def parseframe(device, value):
             else:
                 frameresponse["OP"]="Unknown"
                 frameresponse["MSG"]=tohex(value)
-        if devtype[0] == 6:
+        if devtype.product_id == 6:
             print("Cat Flap")
             print(tohex(value))
             print("14: ",value[14], " 15 ", value[15], " 16 ", value[16])
@@ -293,12 +302,15 @@ def parseframe(device, value):
         curs.execute('select name from pets where tag=(?)', ([tag]))
         petval = curs.fetchone()
         if (petval):
-            frameresponse["Animal"]=petval[0]
+            frameresponse["Animal"]=petval.name
         else:
             frameresponse["Animal"]=tag
         AnimalDirection=(value[16] << 8) + value[17]
         print(AnimalDirection)
-        frameresponse["Direction"]=CatFlapDirection(AnimalDirection).name
+        if CatFlapDirection.has_value(AnimalDirection):
+            frameresponse["Direction"]=CatFlapDirection(AnimalDirection).name
+        else:
+            frameresponse["Direction"]="**UNKNOWN**"
         if frameresponse["Direction"] != "Status":
             frameresponse["OP"]="PetMovement"
         else:
@@ -316,7 +328,7 @@ def parseframe(device, value):
                 curs.execute('select name from pets where tag=(?)', ([tag]))
                 petval = curs.fetchone()
                 if (petval):
-                    frameresponse["Animal"]=petval[0]
+                    frameresponse["Animal"]=petval.name
                 else:
                     frameresponse["Animal"]=tag
             action=FeederState(int(value[15])).name
@@ -335,7 +347,7 @@ def parseframe(device, value):
             curs.execute('select bowltype from feeders where mac_address=(?)', ([device]))
             bowlval = curs.fetchone()
             if (bowlval):
-                frameresponse["BC"]=bowlval[0]
+                frameresponse["BC"]=bowlval.bowltype
             else:
                 frameresponse["BC"]=1
             #response.append(frameresponse)
@@ -506,7 +518,7 @@ def parsedoorframe(operation,device,offset,value):
 def inithubmqtt():
     response = dict();
     #Devices
-    curs.execute('select name,product_id,devices.mac_address,led_mode,pairing_mode,curfewenabled,lock_time,unlock_time,lockingmode,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
+    curs.execute('select name,product_id,devices.mac_address,battery,led_mode,pairing_mode,curfewenabled,lock_time,unlock_time,lockingmode,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
     devices = curs.fetchall()
     if devices:
         response['devices'] = devices
@@ -514,7 +526,7 @@ def inithubmqtt():
     pets = curs.fetchall()
     if pets:
         response['pets'] = pets
-    return response
+    return Box(response)
 
 def decodehubmqtt(topic,message):
     response = dict();
@@ -530,7 +542,7 @@ def decodehubmqtt(topic,message):
         curs.execute('select name from devices where mac_address=(?)', ([device]))
         devicename = curs.fetchone()
         if devicename:
-            response['device'] = str(devicename[0])
+            response['device'] = str(devicename.name)
         else:
             response['device'] = str(device)
         timestampstr = str(datetime.utcfromtimestamp(int(msgsplit[0],16)))
@@ -667,8 +679,14 @@ def buildmqttsendmessage(value):
   return ts + " 1000 " + value
 
 #Generate message
-def generatemessage(devicetype,device,operation,state):
-    if devicetype=="hub":
+def generatemessage(devicename,operation,state):
+    if PrintDebug:
+        print(devicename,operation,state)
+    curs.execute('select product_id,mac_address from devices where name like (?)', ([devicename]))
+    device = curs.fetchone()
+    if PrintDebug:
+        print(device)
+    if EntityType(int(device.product_id)).name == "HUB": #Hub
         if operation == "dumpstate":      #Dump all memory registers from 0 to 205
             msgstr = "3 0 205"
         elif operation == "flashleds":    #Flash the ears 3 times
@@ -681,49 +699,63 @@ def generatemessage(devicetype,device,operation,state):
             msgstr = "2 18 1 00"
         elif operation == "earsbright":   #Ears bright
             msgstr = "2 18 1 01"
-        elif operation == "adoptdisable": #Disable adoption mode
+        elif operation == "adoptenable":  #Enable adoption mode to adopt devices.
             msgstr = "2 15 1 02"
-        elif operation == "adoptdisable": #Enable adoption mode to adopt devices.
+        elif operation == "adoptdisable": #Disable adoption mode
             msgstr = "2 15 1 00"
-        return buildmqttsendmessage(msgstr)
+        elif operation == "removedevice0": #Remove Provisioned device 
+            msgstr = "2 22 1 00" #00 for device 0, 01 for device 1 etc.
+        elif operation == "removedevice1": #Remove Provisioned device 
+            msgstr = "2 22 1 01" #00 for device 0, 01 for device 1 etc.
+            
+        return {"topic":"pethublocal/messages", "msg":buildmqttsendmessage(msgstr)}
 
-    elif devicetype=="petdoor":
+    elif EntityType(int(device.product_id)).name == "PETDOOR": #Pet Door
         if operation == "dumpstate": #Dump all memory registers from 0 to 630
             msgstr = "3 0 630"
-        if operation == "setlockstateunlocked": #Lock state - unlocked
-            msgstr = "2 36 1 00"
-        if operation == "setlockstatein":       #Lock state - keep pets in
-            msgstr = "2 36 1 01"
-        if operation == "setlockstateout":      #Lock state - keep pets out
-            msgstr = "2 36 1 02"
-        if operation == "setlockstateboth":     #Lock state - lock both ways
-            msgstr = "2 36 1 03"
-        if operation == "setlockstate39":       #Lock state offset 39, was only set on first lock, probably not needed
+        if operation == "settime": #Set the time
+            now = datetime.now() # Current timestamp
+            msgstr = "2 34 2 "+hb(now.hour)+" "+hb(now.minute)
+        if operation == "setcustom": #Set Custom Mode 1
+            msgstr = "2 61 3 00 00 00"
+            #bitwise operator with each custom mode a separate bit to enable/disable
+            #def setBit(int_type, offset):
+            #mask = 1 << offset
+            #return(int_type | mask)
+
+            #def clearBit(int_type, offset):
+            # mask = ~(1 << offset)
+            # return(int_type & mask)
+        
+        if operation == "setlockstate39":       #Lock state offset 39, was only set on first lock, probably not needed??
             msgstr = "2 39 1 01"
-        if operation == "setcurfew": #Curfew, EE = Enable State, FF = From HH:MM, TT = To HH:MM
-            msgstr = "2 519 6 EE FF FF TT TT 00"
-        if operation == "inbound" or operation == "outbound":
-            curs.execute('select mac_address, lockingmode from devices join doors using (mac_address) where name like (?)', ([device]))
-            lockingmode = curs.fetchone()
-            #print("Current locking mode: " + lockingmode[0])
-            if (operation == "outbound" and state == "OFF" and lockingmode[1] == 1) or (operation == "inbound" and state == "OFF" and lockingmode[1] == 2):
+        if operation == "keepin" or operation == "keepout":
+            curs.execute('select lockingmode from doors where mac_address = (?)', ([device.mac_address]))
+            lmresp = curs.fetchone()
+            lm = lmresp.lockingmode
+            print("Current locking mode: ", lm)
+            if (operation == "keepin" and state == "OFF" and lm == 1) or (operation == "keepout" and state == "OFF" and lm == 2):
                 #Going to Lock State 0 - Unlocked
                 msgstr = "2 36 1 00"
-            elif (operation == "outbound" and state == "ON" and lockingmode[1] == 0) or (operation == "inbound" and state == "OFF" and lockingmode[1] == 3):
+            elif (operation == "keepin" and state == "ON" and lm == 0) or (operation == "keepout" and state == "OFF" and lm == 3):
                 #Going to Lock State 1 - Keep pets in
                 msgstr = "2 36 1 01"
-            elif (operation == "outbound" and state == "OFF" and lockingmode[1] == 3) or (operation == "inbound" and state == "ON" and lockingmode[1] == 0):
+            elif (operation == "keepin" and state == "OFF" and lm == 3) or (operation == "keepout" and state == "ON" and lm == 0):
                 #Going to Lock State 2 - Keep pets out
                 msgstr = "2 36 1 02"
-            elif (operation == "outbound" and state == "ON" and lockingmode[1] == 2) or (operation == "inbound" and state == "ON" and lockingmode[1] == 1):
+            elif (operation == "keepin" and state == "ON" and lm == 2) or (operation == "keepout" and state == "ON" and lm == 1):
                 #Going to Lock State 3 - Lock both ways
                 msgstr = "2 36 1 03"
             else:
                 msgstr = "2 36 1 00"
-            return {"topic":"pethublocal/messages/"+lockingmode[0], "msg":buildmqttsendmessage(msgstr)}
-        return buildmqttsendmessage(msgstr)
+        if operation == "setcurfew": #Curfew, EE = Enable State, FF = From HH:MM, TT = To HH:MM
+            curs.execute('select curfewenabled,lock_time,unlock_time from doors where mac_address = (?)', ([device.mac_address]))
+            curfew = curs.fetchone()
+            print("Current curfew mode: ", curfew)
+            msgstr = "2 519 6 " + hb(curfew.curfewenabled) + " " +curfew.lock_time.replace(':', ' ') + " " + curfew.unlock_time.replace(':', ' ') + " 00"
+        return Box({"topic":"pethublocal/messages/"+device.mac_address, "msg":buildmqttsendmessage(msgstr)})
 
-    elif devicetype=="feeder": #Message 127 to the feeder or cat door
+    elif EntityType(int(device.product_id)).name == "FEEDER": #Feeder
         curs.execute('select mac_address, lockingmode from devices join doors using (mac_address) where name like (?)', ([device]))
         macaddy = curs.fetchone()
         if operation == "ackfeederstatedoor":
@@ -818,23 +850,24 @@ def generatemessage(devicetype,device,operation,state):
         return {"topic":"pethublocal/messages/"+macaddy[0], "msg":buildmqttsendmessage("127 "+msgstr)} #Need to prefix the message with "127 "
         return msgstr
 
-    elif devicetype=="catflap":
+    elif EntityType(int(device.product_id)).name == "CATFLAP": #Cat Flap
         if operation == "dumpstate": #Dump all memory registers from 0 to 630
             msgstr = "TBC"
-        if operation == "inbound" or operation == "outbound":
-            curs.execute('select mac_address, lockingmode from devices join doors using (mac_address) where name like (?)', ([device]))
+        if operation == "keepin" or operation == "keepout":
+            curs.execute('select lockingmode from doors where mac_address = (?)', ([device.mac_address]))
             lockingmode = curs.fetchone()
-            #print("Current locking mode: " + lockingmode[0])
-            if (operation == "outbound" and state == "OFF" and lockingmode[1] == 1) or (operation == "inbound" and state == "OFF" and lockingmode[1] == 2):
+            lm = lockingmode[0]
+            print("Current locking mode: ", lm)
+            if (operation == "keepin" and state == "OFF" and lm == 1) or (operation == "keepout" and state == "OFF" and lm == 2):
                 #Going to Lock State 0 - Unlocked
                 msgstr = "11 00 ZZ 00 TT TT TT TT 00 00 00 00 00 00 07 06 00 02"
-            elif (operation == "outbound" and state == "ON" and lockingmode[1] == 0) or (operation == "inbound" and state == "OFF" and lockingmode[1] == 3):
+            elif (operation == "keepin" and state == "ON" and lm == 0) or (operation == "keepout" and state == "OFF" and lm == 3):
                 #Going to Lock State 1 - Keep pets in
                 msgstr = "11 00 ZZ 00 TT TT TT TT 00 00 00 00 00 00 07 03 00 02"
-            elif (operation == "outbound" and state == "OFF" and lockingmode[1] == 3) or (operation == "inbound" and state == "ON" and lockingmode[1] == 0):
+            elif (operation == "keepin" and state == "OFF" and lm == 3) or (operation == "keepout" and state == "ON" and lm == 0):
                 #Going to Lock State 2 - Keep pets out
                 msgstr = "11 00 ZZ 00 TT TT TT TT 00 00 00 00 00 00 07 05 00 02"
-            elif (operation == "outbound" and state == "ON" and lockingmode[1] == 2) or (operation == "inbound" and state == "ON" and lockingmode[1] == 1):
+            elif (operation == "keepin" and state == "ON" and lm == 2) or (operation == "keepout" and state == "ON" and lm == 1):
                 #Going to Lock State 3 - Lock both ways
                 msgstr = "11 00 ZZ 00 TT TT TT TT 00 00 00 00 00 00 07 04 00 02"
             else:

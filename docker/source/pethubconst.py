@@ -38,11 +38,11 @@ class EntityType(SureEnum):
     PET           = 0   # artificial ID, not used by the Sure Petcare API
     HUB           = 1   # Hub
     REPEATER      = 2   # Repeater
-    PET_FLAP      = 3   # Pet Door Connect
+    PETDOOR       = 3   # Pet Door Connect
     FEEDER        = 4   # Microchip Pet Feeder Connect
     PROGRAMMER    = 5   # Programmer
+    CATFLAP       = 6   # Cat Flap Connect
     FEEDER_LITE   = 7   # Feeder Lite
-    CAT_FLAP      = 6   # Cat Flap Connect
     FELAQUA       = 8   # Felaqua Connect
     DEVICES       = 13  # artificial ID, Pet Flap + Cat Flap + Feeder = 3 + 6 + 4 = 13  ¯\_(ツ)_/¯
 
@@ -79,7 +79,6 @@ class CatFlapLockState(SureEnum): # Lock State IDs.
     KeepIn          = 3
     KeepOut         = 5
     Locked          = 4
-
 
 class LockedOutState(SureEnum): # Locked Out State for preventing animals coming in
     NORMAL          = 2  # Allow pets in
@@ -125,7 +124,8 @@ class CatFlapDirection(SureEnum): # Pet Movement on Cat Flap coming in or going 
     In              = 0x0101
     LookedIn        = 0x0201
     LookedOut       = 0x0200
-    Status          = 0x0202
+    Status1         = 0x0102
+    Status2         = 0x0202
 
 class Animal(SureEnum): # Animal mdi mapping
     alien        = 0

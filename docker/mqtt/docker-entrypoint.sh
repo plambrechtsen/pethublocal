@@ -19,7 +19,7 @@ if [ "$HAMQTTUSERNAME" != "" ]; then
 fi
 
 if [ "$HAMQTTPASSWORD" != "" ]; then
-	if grep remote_username /mosquitto/conf/mosquitto.conf>/dev/null; then
+	if grep remote_password /mosquitto/conf/mosquitto.conf>/dev/null; then
 		echo "Existing remote password"
 	else
 		echo remote_password $HAMQTTPASSWORD >> /mosquitto/conf/mosquitto.conf
