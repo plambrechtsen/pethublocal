@@ -96,6 +96,10 @@ def on_petdoor_message(client, obj, msg):
     log.info("Door "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
     pethub = phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
     for values in pethub['message'][-1:][0].values():
+        print(values)
+        if "Battery" in values: #Update Battery State
+            mv = next((fm for fm in pethub['message'] if fm['OP'] == "Battery"), None)
+            ret=mc.publish(d_sen_t+devid+"_battery/state",mv['Battery'])
         if "PetMovement" in values: #Pet Movement 
             mv = next((fm for fm in pethub['message'] if fm['OP'] == "PetMovement"), None)
             ret=mc.publish(p_t + mv['Animal'].lower() + '/state',mv['Direction'])

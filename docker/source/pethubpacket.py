@@ -32,7 +32,7 @@ from box import Box
 
 #Debugging mesages
 PrintFrame = True #Print the before and after xor frame
-PrintFrameDbg = False #Print the frame headers
+PrintFrameDbg = True #Print the frame headers
 Print126Frame = True #Debug the 2A / 126 feeder frame
 Print127Frame = True #Debug the 2D / 127 feeder frame
 Print132Frame = True #Debug the 3C / 132 hub and door frame
@@ -423,15 +423,17 @@ def parsedoorframe(operation,device,offset,value):
     msgval = {}
     message=bytearray.fromhex(value)
     if PrintFrameDbg:
-        print("Operation: " + operation + " device " + device + " offset " + str(offset) + " -value- " + value)
+        print("Operation: " + str(operation) + " device " + str(device) + " offset " + str(offset) + " -value- " + str(value))
     logmsg=""
     if offset == 33: #Battery and 
-        #print("Value",message[1])
-        op="BatteryandTime"
+        op="Battery"
         msgval['OP']=op
         operation.append(op)
-        msgval['Battery']=hb(message[1])
+        msgval['Battery']=message[1]
         msgval['Time']=converttime(message[2:4])
+        upd = "UPDATE devices SET battery=" + str(message[1]) + ' WHERE mac_address = "' + device + '"'
+        curs.execute(upd)
+        conn.commit()
     elif offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
         op="SetTime"
         msgval['OP']=op
