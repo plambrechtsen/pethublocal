@@ -180,28 +180,46 @@ def on_feeder_message(client, obj, msg):
 def on_catflap_message(client, obj, msg):
     log.info("Cat Flap "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
     pethub = phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
-    for values in pethub['message'][-1:][0].values():
-        if "PetMovement" in values: #Pet Movement 
-            mv = next((fm for fm in pethub['message'] if fm['OP'] == "PetMovement"), None)
-            ret=mc.publish(p_t + mv['Animal'].lower() + '/state',mv['Direction'])
-        if "LockState" in values: #Lock state
-            mv = next((fm for fm in pethub['message'] if fm['OP'] == "LockState"), None)
-            if mv['Lock'] in ["KeepIn","Locked"]:
-                keepin = "ON"
-            else:
-                keepin = "OFF"
-            if mv['Lock'] in ["KeepOut","Locked"]:
-                keepout = "ON"
-            else:
-                keepout = "OFF"
-            ret=mc.publish(d_swi_t+devid+"_lock_keepin/state",keepin)
-            ret=mc.publish(d_swi_t+devid+"_lock_keepout/state",keepout)
-            topicsplit = msg.topic.split("/")
-            if PrintDebug:
-                log.debug(str(topicsplit[-1]))
-            lockmsg = phlp.updatedb('doors',topicsplit[-1],'lockingmode', mv['Lock'])
-            if PrintDebug:
-                log.debug(lockmsg)
+    if pethub['operation'] == 'Status':
+        for values in pethub['message'][-1:][0].values():
+            if "PetMovement" in values: #Pet Movement 
+                mv = next((fm for fm in pethub['message'] if fm['OP'] == "PetMovement"), None)
+                ret=mc.publish(p_t + mv['Animal'].lower() + '/state',mv['Direction'])
+            if "LockState" in values: #Lock state
+                mv = next((fm for fm in pethub['message'] if fm['OP'] == "LockState"), None)
+                if mv['Lock'] in ["KeepIn","Locked"]:
+                    keepin = "ON"
+                else:
+                    keepin = "OFF"
+                if mv['Lock'] in ["KeepOut","Locked"]:
+                    keepout = "ON"
+                else:
+                    keepout = "OFF"
+                ret=mc.publish(d_swi_t+devid+"_lock_keepin/state",keepin)
+                ret=mc.publish(d_swi_t+devid+"_lock_keepout/state",keepout)
+                topicsplit = msg.topic.split("/")
+                if PrintDebug:
+                    log.debug(str(topicsplit[-1]))
+                lockmsg = phlp.updatedb('doors',topicsplit[-1],'lockingmode', mv['Lock'])
+                if PrintDebug:
+                    log.debug(lockmsg)
+
+def on_catflap_lock_message(client, obj, msg):
+    log.info("Cat Flap Lock "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+    topicsplit = msg.topic.split("/")
+    if PrintDebug:
+        log.debug(topicsplit[3])
+    devname=topicsplit[3].split("_")
+    if PrintDebug:
+        log.debug(devname[1])
+    lockmsg = phlp.generatemessage(devname[1], devname[3], str(msg.payload,"utf-8"))
+    if PrintDebug:
+        log.debug(lockmsg)
+    ret=mc.publish(lockmsg['topic'],lockmsg['msg'],qos=1)
+
+def on_catflap_curfew_message(client, obj, msg):
+    log.info("Cat Flap Curfew "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+    log.info("** not implemented")
 
 # Missed Message.. this shouldn't happen so log it.
 def on_message(client, obj, msg):
@@ -257,12 +275,18 @@ for device in pethubinit.devices:
         #Set Time
         log.info("Setting device time for "+device.name)
         petdoortime = phlp.generatemessage(dev, "settime", "")
-        ret=mc.publish(petdoortime.topic,petdoortime.msg,qos=1)
+        if petdoortime[-3:] != "TBC":
+            ret=mc.publish(petdoortime.topic,petdoortime.msg,qos=1)
+        else:
+            log.info("settime not implemented")
 
         #Dump current state 
         log.info("Dump current state for "+device.name)
         petdoortime = phlp.generatemessage(dev, "dumpstate", "")
-        ret=mc.publish(petdoortime.topic,petdoortime.msg,qos=1)
+        if petdoortime[-3:] != "TBC":
+            ret=mc.publish(petdoortime.topic,petdoortime.msg,qos=1)
+        else:
+            log.info("dumpstate not implemented")
     
         if pid == 3: #Pet Door (3)
             log.info("Loading Pet Door: "+device.name)

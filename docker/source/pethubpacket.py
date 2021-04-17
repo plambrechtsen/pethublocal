@@ -856,10 +856,12 @@ def generatemessage(devicename,operation,state):
     elif EntityType(int(device.product_id)).name == "CATFLAP": #Cat Flap
         if operation == "dumpstate": #Dump all memory registers from 0 to 630
             msgstr = "TBC"
+        if operation == "settime":
+            msgstr = "TBC"            
         if operation == "keepin" or operation == "keepout":
             curs.execute('select lockingmode from doors where mac_address = (?)', ([device.mac_address]))
             lockingmode = curs.fetchone()
-            lm = lockingmode[0]
+            lm = lockingmode.lockingmode
             print("Current locking mode: ", lm)
             if (operation == "keepin" and state == "OFF" and lm == 1) or (operation == "keepout" and state == "OFF" and lm == 2):
                 #Going to Lock State 0 - Unlocked
@@ -876,10 +878,10 @@ def generatemessage(devicename,operation,state):
             else:
                 msgstr = "11 00 ZZ 00 TT TT TT TT 00 00 00 00 00 00 07 06 00 02"
             hubts = feedertimestampfromnow()
-            devcounter = devicecounter(lockingmode[0],"-1","-2") #Iterate the send counter for the device
+            devcounter = devicecounter(device.mac_address,"-1","-2") #Iterate the send counter for the device
             msgstr = msgstr.replace('ZZ', hb(devcounter['send'])) # Replace device counter in the record
             msgstr = msgstr.replace('TT TT TT TT', " ".join(hubts[i:i+2] for i in range(0, len(hubts), 2))) # Timestamp
-            return {"topic":"pethublocal/messages/"+lockingmode[0], "msg":buildmqttsendmessage("127 "+msgstr)} #Need to prefix the message with "127 "
+            return {"topic":"pethublocal/messages/"+device.mac_address, "msg":buildmqttsendmessage("127 "+msgstr)} #Need to prefix the message with "127 "
         return buildmqttsendmessage(msgstr)
 
     else:
@@ -892,15 +894,15 @@ def devicecounter(mac_address,send,retrieve):
     devcount = curs.fetchone()
     devc = {"send":-3, "retrieve":-3}
     if send == "-2":
-        devc['send'] = devcount[0]
+        devc['send'] = devcount.send
     if send == "-1":
-        devc['send'] = devcount[0]+1
+        devc['send'] = devcount.send+1
     if send >= "0":
         devc['send'] = send
     if retrieve == "-2":
-        devc['retrieve'] = devcount[1]
+        devc['retrieve'] = devcount.retrieve
     if retrieve == "-1":
-        devc['retrieve'] = devcount[1]+1
+        devc['retrieve'] = devcount.retrieve+1
     if retrieve >= "0":
         devc['retrieve'] = retrieve
     cur = conn.cursor()

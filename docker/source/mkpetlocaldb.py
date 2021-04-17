@@ -55,6 +55,7 @@ async def petlocaldb():
             sqlcmd(conn, "DROP TABLE tagmap;")
             sqlcmd(conn, "DROP TABLE pets;")
             sqlcmd(conn, "DROP TABLE petstate;")
+            sqlcmd(conn, "DROP TABLE devicecounter;")
             sqlcmd(conn, "CREATE TABLE devices(mac_address TEXT, product_id INTEGER, name TEXT, serial_number TEXT, battery TEXT, device_rssi TEXT, hub_rssi TEXT, version BLOB);")
             sqlcmd(conn, "CREATE TABLE hubs(mac_address TEXT, led_mode INTEGER, pairing_mode INTEGER );")
             sqlcmd(conn, "CREATE TABLE doors(mac_address TEXT, curfewenabled INTEGER, lock_time TEXT, unlock_time TEXT, lockingmode INTEGER, custommode TEXT);")
@@ -63,6 +64,7 @@ async def petlocaldb():
             sqlcmd(conn, "CREATE TABLE pets(tag TEXT, name TEXT, species INTEGER );")
             sqlcmd(conn, "CREATE TABLE petstate(tag TEXT, mac_address TEXT, timestamp TEXT, state BLOB );")
             sqlcmd(conn, "CREATE TABLE devicestate(mac_address TEXT, offset INTEGER, length INTEGER, data TEXT, UNIQUE (mac_address, offset, length) ON CONFLICT REPLACE );")
+            sqlcmd(conn, "CREATE TABLE devicecounter(mac_address TEXT, send INTEGER, retrieve INTEGER );")
         else:
             print("Error! cannot create the database connection.")
             exit(1)
@@ -202,6 +204,7 @@ async def petlocaldb():
                     else:
                         lockingmode = 0
                 c.execute("INSERT INTO doors values((?), (?), (?), (?), (?), '000000');", (mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
+                c.execute("INSERT INTO devicecounter values((?), 0, 0);", [mac_address])
                 conn.commit()
 
             if 'tags' in device:
