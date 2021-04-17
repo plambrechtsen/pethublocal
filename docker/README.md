@@ -24,6 +24,7 @@ As per the below the altered flow is:
 - The web/app.py creates an altered credentials file to point the hub to local MQTT TLS endpoint on 8883 and have a consistent topic name rather than UUID value and saves original and new credentials file locally. Read the app.py to see which fields are updated and if you want to point to an alternative DNS name for the MQTT endpoint.
 - Responds to Hub with altered credentials file.
 - The hub then connects to local MQTT with client certificate that is embedded in the credentials file but it doesn't need to validate the certificate as we know it is the hub.
+- As long as you have Home Assistant with [MQTT Discovery](https://www.home-assistant.io/docs/mqtt/discovery/) enabled which is by default the entities should all start appearing as `device_` and `pet_` value
 
 ![PetHubLocal](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.githubusercontent.com/plambrechtsen/pethublocal/main/docs/Pethublocal.iuml)
 
