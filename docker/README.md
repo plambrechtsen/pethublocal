@@ -121,7 +121,7 @@ msgs
 pethub
 ```
 
-`web` - is where the creds get downloaded and cached
-`mqtt` - the logs from the mqtt server
-`msgs` - A log of the messages
-`pethub` - Listens to hub topic and creates local messages.
+- `web` - is where the creds get downloaded and cached
+- `mqtt` - the logs from the mqtt server
+- `msgs` - A log of the messages
+- `pethub` - Listens to hub topic and creates local messages.
