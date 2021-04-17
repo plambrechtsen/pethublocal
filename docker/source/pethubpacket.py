@@ -31,11 +31,11 @@ from pethubconst import *
 from box import Box
 
 #Debugging mesages
-PrintFrame = True #Print the before and after xor frame
-PrintFrameDbg = True #Print the frame headers
-Print126Frame = True #Debug the 2A / 126 feeder frame
-Print127Frame = True #Debug the 2D / 127 feeder frame
-Print132Frame = True #Debug the 3C / 132 hub and door frame
+PrintFrame = False #Print the before and after xor frame
+PrintFrameDbg = False #Print the frame headers
+Print126Frame = False #Debug the 2A / 126 feeder frame
+Print127Frame = False #Debug the 2D / 127 feeder frame
+Print132Frame = False #Debug the 3C / 132 hub and door frame
 Print2Frame = False   #Debug the 2 frame
 PrintDebug = False   #Debug the 2 frame
 
@@ -367,21 +367,22 @@ def parsehubframe(operation,device,offset,value):
     operation = []
     msgval = {}
     message=bytearray.fromhex(value)
-    print("Hub Frame",message)
     if PrintFrameDbg:
-        print("Operation: " + operation + " device " + device + " offset " + str(offset) + " -value- " + value)
+        print("Operation: " + str(operation) + " device " + str(device) + " offset " + str(offset) + " -value- " + str(value))
     logmsg=""
     if message[0] >= 4: #This is a register dump message
         print("Insert into db")
         curs.execute("INSERT OR REPLACE INTO devicestate values((?), (?), (?), (?));", (device, offset, message[0], value[2:]))
         conn.commit()
     if offset == 33: #Battery and 
-        #print("Value",message[1])
-        op="BatteryandTime"
+        op="Battery"
         msgval['OP']=op
         operation.append(op)
-        msgval['Battery']=hb(message[1])
+        msgval['Battery']=message[1]
         msgval['Time']=converttime(message[2:4])
+        upd = "UPDATE devices SET battery=" + str(message[1]) + ' WHERE mac_address = "' + device + '"'
+        curs.execute(upd)
+        conn.commit()
         response.append(msgval)
     elif offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
         op="SetTime"
@@ -538,7 +539,10 @@ def decodehubmqtt(topic,message):
 
     #Decode device name
     if device=="messages":
-        response['device'] = "hub"
+        curs.execute('select name from devices where product_id=1')
+        devicename = curs.fetchone()
+        if devicename:
+            response['device'] = str(devicename.name)
         timestampstr = str(datetime.utcfromtimestamp(int(ts,16)))
     else:
         curs.execute('select name from devices where mac_address=(?)', ([device]))
@@ -570,29 +574,26 @@ def decodehubmqtt(topic,message):
         resp.append({"OP":["Boot"]})
         response['message'] = resp
     elif msgsplit[2] == "10": #Hub Uptime
+        op="Uptime"
         msgval = {}
-        msgval['Uptime']=str(int(msgsplit[3]))
-        msgval['TS']=msgsplit[4]+"-"+':'.join(format(int(x,16), '02d') for x in msgsplit[5:8])
+        msgval['OP']=op
+        msgval[op]=str(int(msgsplit[3]))
+        msgval['TS']=msgsplit[4]+"-"+':'.join(format(int(x), '02d') for x in msgsplit[5:8])
         msgval['Reconnect']=msgsplit[9]
-        resp.append({"Msg":msgval})
-        resp.append({"OP":["Uptime"]})
+        resp.append(msgval)
+        resp.append({"OP":[op]})
         response['message'] = resp
-    elif msgsplit[2] == "127": #Feeder frame sent/control message
-        #ba = bytearray([0x7F])
+    elif msgsplit[2] == "127": #127 Feeder frame sent/control message
         singleframe = bytearray.fromhex("".join(msgsplit[3:]))
         singleresponse = []
         singleframeresponse = parseframe(device, singleframe)
         singleresponse.append(singleframeresponse)
-        #Append the operation to a separate array we attach at the end.
         op=singleframeresponse['OP']
         singleresponse.append({"OP":[op]})
         response['message'] = singleresponse
-    elif msgsplit[2] == "126": #Feeder frame status message
-        #ba = bytearray([0x7E])
-        #print("message 127")
+    elif msgsplit[2] == "126": #126 Feeder multiframe status message
         multiframe = bytearray.fromhex("".join(msgsplit[3:]))
         response['message'] = parsemultiframe(device,multiframe)
-        #print(response['message'])
     elif msgsplit[2] == "132" and device != "messages" : #Pet Door Status
         #Status message has a counter at offset 4 we can ignore:
         if Print132Frame:
