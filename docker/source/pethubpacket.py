@@ -430,9 +430,14 @@ def parsedoorframe(operation,device,offset,value):
         op="Battery"
         msgval['OP']=op
         operation.append(op)
-        msgval['Battery']=message[1]
+        #Pontential Battery ADC Calculation(?), Battery full 0xbd, and dies at 61/5f.
+        #ADC Start for Pet Door
+        adcstart=2.1075
+        adcstep=0.0225
+        battadc = (int(message[1])*adcstep)+adcstart
+        msgval['Battery']=str(battadc)
         msgval['Time']=converttime(message[2:4])
-        upd = "UPDATE devices SET battery=" + str(message[1]) + ' WHERE mac_address = "' + device + '"'
+        upd = "UPDATE devices SET battery=" + str(battadc) + ' WHERE mac_address = "' + device + '"'
         curs.execute(upd)
         conn.commit()
     elif offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
