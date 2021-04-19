@@ -196,13 +196,13 @@ def parseframe(device, value):
     msg = ""
 
     #Frame timestamp value
-    print(tohex(value))
+#    print(tohex(value))
 #    print(tohex(value[4:8]))
     frametimestamp = feedertimestamptostring(bltoi(value[4:8]))
 #    print(str(frametimestamp))
     frameresponse["framets"]=frametimestamp
 
-    if value[0] in [0x07, 0x0b, 0x0c, 0x10, 0x16]: #Unknown messages
+    if value[0] in [0x07, 0x0b, 0x10, 0x16]: #Unknown messages
         op=hb(value[0])
         frameresponse["OP"]="Msg"+op
         frameresponse["MSG"]=tohex(value[3:])
@@ -263,6 +263,13 @@ def parseframe(device, value):
             frameresponse["MSG"]=tohex(value[9:12])
         if Print126Frame:
             print(msg)
+    elif value[0] == 0x0c: #Battery state for two bytes
+        frameresponse['OP']="Battery"
+        battery = str(int(b2is(value[8:10]))/1000)
+        frameresponse['Battery']=battery
+        upd = "UPDATE devices SET battery=" + battery + ' WHERE mac_address = "' + device + '"'
+        curs.execute(upd)
+        conn.commit()
     elif value[0] == 0x11: #Provision chip to device and set lock states on cat flap.
         curs.execute('select product_id from devices where mac_address=(?)', ([device]))
         devtype = curs.fetchone()
@@ -631,7 +638,7 @@ def decodehubmqtt(topic,message):
         resp.append({"Msg":message})
         resp.append({"OP":["ERROR"]})
         response['message'] = resp
-    return response
+    return Box(response)
 
 def decodemiwi(timestamp,source,destination,framestr):
     framexor=bytearray.fromhex(framestr)
@@ -716,7 +723,7 @@ def generatemessage(devicename,operation,state):
         elif operation == "removedevice1": #Remove Provisioned device 
             msgstr = "2 22 1 01" #00 for device 0, 01 for device 1 etc.
             
-        return {"topic":"pethublocal/messages", "msg":buildmqttsendmessage(msgstr)}
+        return Box({"topic":"pethublocal/messages", "msg":buildmqttsendmessage(msgstr)})
 
     elif EntityType(int(device.product_id)).name == "PETDOOR": #Pet Door
         if operation == "dumpstate": #Dump all memory registers from 0 to 630
@@ -764,75 +771,64 @@ def generatemessage(devicename,operation,state):
         return Box({"topic":"pethublocal/messages/"+device.mac_address, "msg":buildmqttsendmessage(msgstr)})
 
     elif EntityType(int(device.product_id)).name == "FEEDER": #Feeder
-        curs.execute('select mac_address, lockingmode from devices join doors using (mac_address) where name like (?)', ([device]))
-        macaddy = curs.fetchone()
-        if operation == "ackfeederstatedoor":
+        #curs.execute('select mac_address, lockingmode from devices join doors using (mac_address) where name like (?)', ([device]))
+        #macaddy = curs.fetchone()
+        if operation == "getstate":
+        #Request message state
+            msgstr = "01 00 ZZ 00 TT TT TT TT " + state
+        elif operation == "ackfeederstatedoor":
         #Acknowledge the 18 door state.
             msgstr = "00 00 ZZ 00 TT TT TT TT 18 00 00"
             msgstr = msgstr.replace('ZZ', format(counter,'02x'))
         elif operation == "ackfeederstate16":
             #Acknowledge the 16 state.
             msgstr = "00 00 ZZ 00 TT TT TT TT 16 00 00"
-            return msgstr
         elif operation == "ackfeederstate09":
             #Acknowledge the 09 settings update state.
             msgstr = "00 00 ZZ 00 TT TT TT TT 09 00 00"
-            return msgstr
         elif operation == "getcurrentstate0b":
         #Request boot message state 0b
             msgstr = "01 00 ZZ 00 TT TT TT TT 0b 00"
-            return msgstr
         elif operation == "getbootstate0c":
-            #Request boot message state 0c
+            #Request boot message state 0c - Battery
             msgstr = "01 00 ZZ 00 TT TT TT TT 0c 00"
-            return msgstr
         elif operation == "getbootstate10":
         #Request boot message state 10
             msgstr = "01 00 ZZ 00 TT TT TT TT 10 00"
-            return msgstr
         elif operation == "getprovisionedchipsstate":
             #This tells the feeder to dump all provisioned chips
             msgstr = "01 00 ZZ 00 TT TT TT TT 11 00 ff"
-            return msgstr
         elif operation == "getbootstate17":
             #Request boot message state 17
             msgstr = "01 00 ZZ 00 TT TT TT TT 17 00 00"
-            return msgstr
         elif operation == "lidclosedelayfast":
             #Update lid close delay to fast = 0
             msgstr = "09 00 ZZ 00 TT TT TT TT 0d 00 00 00 00"
-            return msgstr
         elif operation == "lidclosedelaynormal":
             #Update lid close delay to normal = 4000 (0fa0) - 4 seconds(?)
             msgstr = "09 00 ZZ 00 TT TT TT TT 0d a0 0f 00 00"
-            return msgstr
         elif operation == "lidclosedelayslow":
             #Update lid close delay to slow = 20000 (4e20) - 20 seconds(?)
             msgstr = "09 00 ZZ 00 TT TT TT TT 0d 20 4e 00 00"
-            return msgstr
         elif operation == "setleftscaleweight":
             #Set left or single bowl scale weight
             msgstr = "09 00 ZZ 00 TT TT TT TT 0a WW WW WW WW"
             weight= str(binascii.hexlify(struct.pack('<I', opvalue*100)),'ascii')
             msgstr = msgstr.replace("WW WW WW WW", weight)
-            return msgstr
         elif operation == "setrightscaleweight":
             #Set right scale weight
             msgstr = "09 00 ZZ 00 TT TT TT TT 0b WW WW WW WW"
             weight= str(binascii.hexlify(struct.pack('<I', opvalue*100)),'ascii')
             msgstr = msgstr.replace("WW WW WW WW", weight)
-            return msgstr
         elif operation == "setbowlcount":
             #Set bowl count either 01 for one bowl or 02 for two.
             msgstr = "09 00 ZZ 00 TT TT TT TT 0c WW 00 00 00"
             msgstr = msgstr.replace("WW", format(opval,'02x'))
-            return msgstr
         elif operation == "set12message":
             #Not sure what caused this but it happened around setting the scales - 12f4010000
             msgstr = "09 00 ZZ 00 TT TT TT TT 12 WW WW WW WW"
             weight= str(binascii.hexlify(struct.pack('<I', opvalue)),'ascii')
             msgstr = msgstr.replace("WW WW WW WW", weight)
-            return msgstr
         elif operation == "zeroleftscale":
             #Zero the left scale, first need to check feeder is open via Message 18 state 
             msgstr = "0d 00 ZZ 00 TT TT TT TT 00 19 00 00 00 03 00 00 00 00 01 01"
@@ -852,11 +848,10 @@ def generatemessage(devicename,operation,state):
             print("Unknown message")
 
         hubts = feedertimestampfromnow()
-        devcounter = devicecounter(macaddy[0],"-1","-2") #Iterate the send counter for the device
+        devcounter = devicecounter(device.mac_address,"-1","-2") #Iterate the send counter for the device
         msgstr = msgstr.replace('ZZ', hb(devcounter['send'])) # Replace device counter in the record
         msgstr = msgstr.replace('TT TT TT TT', " ".join(hubts[i:i+2] for i in range(0, len(hubts), 2))) # Timestamp
-        return {"topic":"pethublocal/messages/"+macaddy[0], "msg":buildmqttsendmessage("127 "+msgstr)} #Need to prefix the message with "127 "
-        return msgstr
+        return Box({"topic":"pethublocal/messages/"+device.mac_address, "msg":buildmqttsendmessage("127 "+msgstr)}) #Need to prefix the message with "127 "
 
     elif EntityType(int(device.product_id)).name == "CATFLAP": #Cat Flap
         if operation == "dumpstate": #Dump all memory registers from 0 to 630

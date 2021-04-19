@@ -153,9 +153,13 @@ def on_petdoor_curfew_message(client, obj, msg):
 def on_feeder_message(client, obj, msg):
     log.info("Feeder "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
     pethub = phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+    devid=pethub.device.replace(' ', '_').lower()
     if PrintDebug:
         log.debug(pethub)
     for values in pethub['message'][-1:][0].values():
+        if "Battery" in values: #Update Battery State
+            mv = next((fm for fm in pethub['message'] if fm['OP'] == "Battery"), None)
+            ret=mc.publish(d_sen_t+devid+"_battery/state",mv['Battery'])
         if "Feed" in values:
             mv = next((fm for fm in pethub['message'] if fm['OP'] == "Feed"), None)
             if PrintDebug:
@@ -182,6 +186,9 @@ def on_catflap_message(client, obj, msg):
     pethub = phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
     if pethub['operation'] == 'Status':
         for values in pethub['message'][-1:][0].values():
+            if "Battery" in values: #Update Battery State
+                mv = next((fm for fm in pethub['message'] if fm['OP'] == "Battery"), None)
+                ret=mc.publish(d_sen_t+devid+"_battery/state",mv['Battery'])
             if "PetMovement" in values: #Pet Movement 
                 mv = next((fm for fm in pethub['message'] if fm['OP'] == "PetMovement"), None)
                 ret=mc.publish(p_t + mv['Animal'].lower() + '/state',mv['Direction'])
@@ -275,21 +282,20 @@ for device in pethubinit.devices:
         #Set Time
         log.info("Setting device time for "+device.name)
         petdoortime = phlp.generatemessage(dev, "settime", "")
-        if petdoortime[-3:] != "TBC":
+        if "TBC" not in petdoortime:
             ret=mc.publish(petdoortime.topic,petdoortime.msg,qos=1)
         else:
             log.info("settime not implemented")
 
-        #Dump current state 
-        log.info("Dump current state for "+device.name)
-        petdoortime = phlp.generatemessage(dev, "dumpstate", "")
-        if petdoortime[-3:] != "TBC":
-            ret=mc.publish(petdoortime.topic,petdoortime.msg,qos=1)
-        else:
-            log.info("dumpstate not implemented")
-    
         if pid == 3: #Pet Door (3)
             log.info("Loading Pet Door: "+device.name)
+            #Dump current state 
+            log.info("Dump current state for "+device.name)
+            petdoortime = phlp.generatemessage(dev, "dumpstate", "")
+            if "TBC" not in petdoortime:
+                ret=mc.publish(petdoortime.topic,petdoortime.msg,qos=1)
+            else:
+                log.info("dumpstate not implemented")
             if PrintDebug:
                 log.debug("Pet Door Payload: "+str(device))
             #Adding callbacks to MQTT to call separate functions when messages arrive for pet dor
@@ -347,6 +353,12 @@ for device in pethubinit.devices:
             log.info("Feeder Payload: "+str(device))
         #Add callback for feeder from hub
         mc.message_callback_add(h_t + '/' + mac, on_feeder_message)
+
+        #Init feeder
+        log.info("Init Feeder for "+device.name)
+        #Get Battery state
+        battery = phlp.generatemessage(dev, "getstate", "0c 00")
+        ret=mc.publish(battery.topic,battery.msg,qos=1)
 
         if device.bowltype == 2: #Two bowls
             #Build config for HA MQTT discovery
