@@ -72,6 +72,10 @@ def makedb(data):
         print("Error! cannot create the database connection.")
         exit(1)
 
+    #If someone decides to save and pass the full "start.json" message there is a data top level element that isn't expected.
+    if 'data' in data:
+        data = data.data
+
     if {'tags','devices','pets'} <= set(data):
     
         tags = data.tags
