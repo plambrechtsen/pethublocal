@@ -45,6 +45,10 @@ async def petlocaldb():
         #Dump response
         if PrintDebug:
             print(data)
+            sttime = datetime.now().strftime('%Y%m%d_%H%M%S')
+            f = open("start-"+sttime+".json", "w")
+            f.write(json.dumps(data))
+            f.close()
         # Create pet hub local tables
         conn = create_connection('pethublocal.db')
         if conn is not None:
@@ -88,8 +92,12 @@ async def petlocaldb():
             if 'status' in pets:
                 if 'activity' in pets['status']:
                     timestamp = pets['status']['activity']['since']
-                    device_id = pets['status']['activity']['device_id']
-                    mac_address = [x for x in devices if x["id"]==device_id][0]['mac_address']
+                    if 'device_id' in pets['status']['activity']:
+                        device_id = pets['status']['activity']['device_id']
+                        mac_address = [x for x in devices if x["id"]==device_id][0]['mac_address']
+                    else:
+                        device_id = ''
+                        mac_address = ''
                     state = pets['status']['activity']['where']
 
                     c.execute("INSERT INTO petstate values((?), (?), (?), (?));", (tag, mac_address, timestamp, state))
@@ -97,8 +105,12 @@ async def petlocaldb():
 
                 if 'feeding' in pets['status']:
                     timestamp = pets['status']['feeding']['at']
-                    device_id = pets['status']['feeding']['device_id']
-                    mac_address = [x for x in devices if x["id"]==device_id][0]['mac_address']
+                    if 'device_id' in pets['status']['activity']:
+                        device_id = pets['status']['feeding']['device_id']
+                        mac_address = [x for x in devices if x["id"]==device_id][0]['mac_address']
+                    else:
+                        device_id = ''
+                        mac_address = ''
                     state = json.dumps(pets['status']['feeding']['change'])
 
                     c.execute("INSERT INTO petstate values((?), (?), (?), (?));", (tag, mac_address, timestamp, state))
