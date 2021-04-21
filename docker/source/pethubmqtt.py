@@ -89,8 +89,8 @@ else:
 
 # Feeder
 def on_hub_message(client, obj, msg):
-    log.info("Hub  "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
     pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+    log.info("Hub  "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8")+" "+json.dumps(pethub))
     devid=pethub['device'].replace(' ', '_').lower()
     for values in pethub['message'][-1:][0].values():
         if "Uptime" in values: #Update Uptime
@@ -99,8 +99,8 @@ def on_hub_message(client, obj, msg):
 
 # Pet Door
 def on_petdoor_message(client, obj, msg):
-    log.info("Door "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
-    pethub = phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+    pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+    log.info("Door "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8")+" "+json.dumps(pethub))
     devid=pethub['device']
     for values in pethub['message'][-1:][0].values():
         if "Battery" in values: #Update Battery State
@@ -130,7 +130,8 @@ def on_petdoor_message(client, obj, msg):
 
 # Pet Door Lock Update State
 def on_petdoor_lock_message(client, obj, msg):
-    log.info("Door Lock "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+    pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+    log.info("Door Lock "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8")+" "+json.dumps(pethub))
     topicsplit = msg.topic.split("/")
     if PrintDebug:
         log.debug(topicsplit[3])
@@ -144,15 +145,16 @@ def on_petdoor_lock_message(client, obj, msg):
 
 # Pet Door Curfew
 def on_petdoor_curfew_message(client, obj, msg):
-    log.info("Door Curfew "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+    pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+    log.info("Door Curfew "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8")+" "+json.dumps(pethub))
 #    log.info(p.generatemessage("hub", "flashleds"))
 #    ret=mc.publish('pethublocal/messages',p.generatemessage("hub", "flashleds"),qos=1)
 #    log.info(ret)
 
 # Feeder
 def on_feeder_message(client, obj, msg):
-    log.info("Feeder "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
-    pethub = phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+    pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+    log.info("Feeder "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8")+" "+json.dumps(pethub))
     devid=pethub.device.replace(' ', '_').lower()
     if PrintDebug:
         log.debug(pethub)
@@ -182,8 +184,8 @@ def on_feeder_message(client, obj, msg):
 
 # Cat Door
 def on_catflap_message(client, obj, msg):
-    log.info("Cat Flap "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
-    pethub = phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+    pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+    log.info("Cat Flap "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8")+" "+json.dumps(pethub))
     if pethub['operation'] == 'Status':
         for values in pethub['message'][-1:][0].values():
             if "Battery" in values: #Update Battery State
@@ -212,7 +214,8 @@ def on_catflap_message(client, obj, msg):
                     log.debug(lockmsg)
 
 def on_catflap_lock_message(client, obj, msg):
-    log.info("Cat Flap Lock "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+    pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+    log.info("Cat Flap Lock "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8")+" "+json.dumps(pethub))
     topicsplit = msg.topic.split("/")
     if PrintDebug:
         log.debug(topicsplit[3])
@@ -225,12 +228,17 @@ def on_catflap_lock_message(client, obj, msg):
     ret=mc.publish(lockmsg['topic'],lockmsg['msg'],qos=1)
 
 def on_catflap_curfew_message(client, obj, msg):
-    log.info("Cat Flap Curfew "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+    log.info("Cat Flap Curfew "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8")+" "+json.dumps(pethub))
     log.info("** not implemented")
 
 # Missed Message.. this shouldn't happen so log it.
 def on_message(client, obj, msg):
-    log.info("**Non matched message** "  + msg.topic+" "+str(msg.qos)+" "+str(msg.payload))
+    if "pethublocal/messages" in msg.topic:
+        pethub = phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+        log.info("**Non matched message** "  + msg.topic+" "+str(msg.qos)+" "+str(msg.payload)+" "+json.dumps(pethub))
+    else:
+        log.info("**Non matched message** "  + msg.topic+" "+str(msg.qos)+" "+str(msg.payload))
+    
 
 def on_publish(cl,data,res):
     #log.info("data published ", res)
@@ -393,7 +401,7 @@ for device in pethubinit.devices:
 
             #Set Bowl Target sensor state
             if PrintDebug:
-                    log.debug(d_sen_t+devid+'_bowl_target/state' + " " +json.dumps(bowltargetstate))
+                log.debug(d_sen_t+devid+'_bowl_target/state' + " " +json.dumps(bowltargetstate))
             ret=mc.publish(d_sen_t+devid+'_bowl_target/state',json.dumps(bowltargetstate))
 
             #Create Bowl sensors
@@ -402,6 +410,8 @@ for device in pethubinit.devices:
                 ret=mc.publish(d_sen_t+devid+'_'+key+'/config',json.dumps(configmessage))
 
             #Set Bowl Sensor State
+            if PrintDebug:
+                log.debug(d_sen_t+devid+'_bowl/state' + " " +json.dumps(bowlstate))
             ret=mc.publish(d_sen_t+devid+'_bowl/state',json.dumps(bowlstate))
 
 log.info("Load Pets from pethublocal.db and create Home Assistant MQTT discovery config topics")

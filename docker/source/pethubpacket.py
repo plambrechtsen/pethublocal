@@ -857,7 +857,7 @@ def generatemessage(devicename,operation,state):
         if operation == "dumpstate": #Dump all memory registers from 0 to 630
             msgstr = "TBC"
         if operation == "settime":
-            msgstr = "TBC"            
+            msgstr = "TBC"
         if operation == "keepin" or operation == "keepout":
             curs.execute('select lockingmode from doors where mac_address = (?)', ([device.mac_address]))
             lockingmode = curs.fetchone()
