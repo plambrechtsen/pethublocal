@@ -60,7 +60,7 @@ def makedb(data):
         sqlcmd(conn, "DROP TABLE petstate;")
         sqlcmd(conn, "DROP TABLE devicecounter;")
         sqlcmd(conn, "CREATE TABLE devices(mac_address TEXT, product_id INTEGER, name TEXT, serial_number TEXT, battery TEXT, device_rssi TEXT, hub_rssi TEXT, version BLOB);")
-        sqlcmd(conn, "CREATE TABLE hubs(mac_address TEXT, led_mode INTEGER, pairing_mode INTEGER );")
+        sqlcmd(conn, "CREATE TABLE hubs(mac_address TEXT, led_mode INTEGER, pairing_mode INTEGER, state INTEGER, uptime INTEGER );")
         sqlcmd(conn, "CREATE TABLE doors(mac_address TEXT, curfewenabled INTEGER, lock_time TEXT, unlock_time TEXT, lockingmode INTEGER, custommode TEXT);")
         sqlcmd(conn, "CREATE TABLE feeders(mac_address TEXT, bowltype INTEGER, bowl1 INTEGER, bowl2 INTEGER, bowltarget1 INTEGER, bowltarget2 INTEGER, close_delay INTEGER );")
         sqlcmd(conn, "CREATE TABLE tagmap(mac_address TEXT, deviceindex INTEGER, tag TEXT, UNIQUE (mac_address, deviceindex) ON CONFLICT REPLACE );")
@@ -158,9 +158,14 @@ def makedb(data):
                 else:
                     led_mode = 0
                     pairing_mode = 0
+                if 'online' in device.status:
+                    state = device.status.online
+                else:
+                    state = 0
+                print("State ",state)
                 if PrintDebug:
-                    print('Hubs: mac_address = {0}, led_mode={1}, pairing_mode={2}'.format(mac_address, led_mode, pairing_mode))
-                sqlcmdvar(conn, "INSERT INTO hubs values((?), (?), (?));", (mac_address, led_mode, pairing_mode))
+                    print('Hubs: mac_address = {0}, led_mode={1}, pairing_mode={2}, state={3}, uptime=0'.format(mac_address, led_mode, pairing_mode, state))
+                sqlcmdvar(conn, "INSERT INTO hubs values((?), (?), (?), (?), 0);", (mac_address, led_mode, pairing_mode, state))
 
             if product_id == 3: #Pet Door
                 #Curfew mode

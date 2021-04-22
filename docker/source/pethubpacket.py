@@ -31,13 +31,15 @@ from pethubconst import *
 from box import Box
 
 #Debugging mesages
-PrintFrame = False #Print the before and after xor frame
-PrintFrameDbg = False #Print the frame headers
-Print126Frame = False #Debug the 2A / 126 feeder frame
-Print127Frame = False #Debug the 2D / 127 feeder frame
-Print132Frame = False #Debug the 3C / 132 hub and door frame
-Print2Frame = False   #Debug the 2 frame
-PrintDebug = False   #Debug the 2 frame
+PrintFrame = False       #Print the before and after xor frame
+PrintFrameDbg = False    #Print the frame headers
+Print126Frame = False    #Debug the 2A / 126 feeder frame
+Print127Frame = False    #Debug the 2D / 127 feeder frame
+Print132Frame = False    #Debug the 3C / 132 hub and door frame
+PrintHubFrame = False    #Debug the Hub frame
+PrintFeederFrame = False #Debug the Hub frame
+Print2Frame = False      #Debug the 2 frame
+PrintDebug = False       #Debug the 2 frame
 
 #Import xor key from pethubpacket.xorkey and make sure it is sane.
 for file in glob.glob("pethubpacket.xorkey"):
@@ -63,6 +65,13 @@ curs=conn.cursor()
 
 #Create hex timestamp
 ts = hex(round(datetime.utcnow().timestamp()))[2:]
+
+def sqlcmd(sql_cmd):
+    try:
+        curs.execute(sql_cmd)
+        conn.commit()
+    except Error as e:
+        print(e)
 
 def feederchiptohex(chip):
     chiphex = ""
@@ -156,6 +165,13 @@ def tohex(ba):
 #Convert a int to hex
 def hb(hexbyte):
     return format(hexbyte,'02x')
+
+def converttime(timearray):
+    return ':'.join(format(x, '02d') for x in timearray)
+
+def converttimetohex(timestring): #For curfew time
+    time=timestring.split(':')
+    return hb(int(time[0]))+" "+hb(int(time[1]))
     
 def petnamebydevice(mac_address, deviceindex):
     curs.execute('select tag from tagmap where mac_address=(?) and deviceindex=(?)', (mac_address, deviceindex))
@@ -201,6 +217,8 @@ def parseframe(device, value):
     frametimestamp = feedertimestamptostring(bltoi(value[4:8]))
 #    print(str(frametimestamp))
     frameresponse["framets"]=frametimestamp
+    #The message type and counter are needed for acking back
+    frameresponse["msgdata"]=hb(value[2])+" "+hb(value[0])
 
     if value[0] in [0x07, 0x0b, 0x10, 0x16]: #Unknown messages
         op=hb(value[0])
@@ -368,117 +386,108 @@ def parseframe(device, value):
         frameresponse["MSG"]=tohex(value)
     return frameresponse
 
-#Parse Hub Frames aka 132's sent to the pet door
-def parsehubframe(operation,device,offset,value):
+#Parse Hub Frames aka 132's sent to the hub
+def parsehubframe(mac_address,offset,value):
     response = []
-    operation = []
-    msgval = {}
+    msgval = Box()
     message=bytearray.fromhex(value)
-    if PrintFrameDbg:
-        print("Operation: " + str(operation) + " device " + str(device) + " offset " + str(offset) + " -value- " + str(value))
-    logmsg=""
-    if message[0] >= 4: #This is a register dump message
-        print("Insert into db")
-        curs.execute("INSERT OR REPLACE INTO devicestate values((?), (?), (?), (?));", (device, offset, message[0], value[2:]))
-        conn.commit()
-    if offset == 33: #Battery and 
-        op="Battery"
-        msgval['OP']=op
-        operation.append(op)
-        msgval['Battery']=message[1]
-        msgval['Time']=converttime(message[2:4])
-        upd = "UPDATE devices SET battery=" + str(message[1]) + ' WHERE mac_address = "' + device + '"'
-        curs.execute(upd)
-        conn.commit()
-        response.append(msgval)
-    elif offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
-        op="SetTime"
-        msgval['OP']=op
-        operation.append(op)
-        msgval['Time']=converttime(message[1:3])
-        response.append(msgval)
-        #logmsg += device + " " + operation + "-Time    : "+ int(message[1]) +":"+ int(message[2])
-        #if int(message[0]) > 2:
-        #    logmsg += "Addional bytes:"+tohex(message[3:])
-    elif offset == 36: #Lock state
-        op="LockState"
-        msgval['OP']=op
-        operation.append(op)
-        msgval['Lock']=LockState(int(message[1])).name
-        #msgval['Lock']=message[1]
-        response.append(msgval)
-        #logmsg += device + " " + operation + "-Lockstate       : "+ pDLockState[int(message[1])]
-        #if int(message[0]) > 1:
-        #    logmsg += "Addional bytes:"+tohex(message[2:])
+    if PrintHubFrame:
+        print("Hub Frame: MAC Address: " + mac_address + " offset " + str(offset) + " -value- " + str(value))
+    if offset == 15: #Adoption Mode
+        opvalue = str(int(message[1]))
+        operation="Adopt"
+        msgval.OP=operation
+        msgval[operation]=opvalue
+        sqlcmd('UPDATE hubs SET pairing_mode=' + opvalue + ' WHERE mac_address = "' + mac_address + '"')
+    elif offset == 18: #LED Mode
+        opvalue = str(int(message[1]))
+        operation="LED"
+        msgval.OP=operation
+        msgval[operation]=opvalue
+        sqlcmd('UPDATE hubs SET led_mode=' + opvalue + ' WHERE mac_address = "' + mac_address + '"')
     else:
-        op="Other"
-        msgval['OP']=op
-        operation.append(op)
-        msgval['MSG']=value
-        #print("Other ", value)
-        #logmsg += device + " " + operation + "-Other offset    : " + value
-        #print("other offset" + logmsg)
+        if message[0] >= 4: #This is a register dump message
+            curs.execute("INSERT OR REPLACE INTO devicestate values((?), (?), (?), (?));", (mac_address, offset, message[0], value[2:]))
+            conn.commit()
+            operation="Boot"
+        else:
+            operation="Other"
+        msgval.OP=operation
+        msgval[operation]=operation
+    response.append(msgval)
     response.append({"OP":operation})
     return response
 
-def converttime(timearray):
-    return ':'.join(format(x, '02d') for x in timearray)
-
-#Parse Pet Door Frames aka 132's sent to the pet door
-def parsedoorframe(operation,device,offset,value):
+def parsefeederframe(mac_address,offset,value):
+    #The 132 Status messaes only have a 33 type for the time and battery, but both values are busted.
     response = []
-    operation = []
-    msgval = {}
+    msgval = Box()
     message=bytearray.fromhex(value)
-    if PrintFrameDbg:
-        print("Operation: " + str(operation) + " device " + str(device) + " offset " + str(offset) + " -value- " + str(value))
-    logmsg=""
-    if offset == 33: #Battery and 
-        op="Battery"
-        msgval['OP']=op
-        operation.append(op)
-        #Pontential Battery ADC Calculation(?), Battery full 0xbd, and dies at 61/5f.
-        #ADC Start for Pet Door
+    if PrintFeederFrame:
+        print("Hub Frame: MAC Address: " + mac_address + " offset " + str(offset) + " -value- " + str(value))
+    if offset == 33: #Battery and Door Time
+        operation="Feeder132Battery"
+        msgval.OP=operation
+        #Battery ADC Calculation, Battery full 0xbd, and dies at 0x61/0x5f.
+        #ADC Start for Pet Door, not sure if this is consistent or just my door
         adcstart=2.1075
+        #ADC Step value for each increment of the adc value 
         adcstep=0.0225
         battadc = (int(message[1])*adcstep)+adcstart
         msgval['Battery']=str(battadc)
         msgval['Time']=converttime(message[2:4])
-        upd = "UPDATE devices SET battery=" + str(battadc) + ' WHERE mac_address = "' + device + '"'
-        curs.execute(upd)
-        conn.commit()
+    else:
+        operation="Other"
+        msgval.OP=operation
+        msgval.MSG=tohex(value)
+        msgval[operation]=operation
+    response.append(msgval)
+    response.append({"OP":[operation]})
+    return response
+
+#Parse Pet Door Frames aka 132's sent to the pet door
+def parsedoorframe(mac_address,offset,value):
+    response = []
+    operation = []
+    msgval = {}
+    message=bytearray.fromhex(value)
+    if PrintFrameDbg:
+        print("Operation: " + str(operation) + " mac_address " + str(mac_address) + " offset " + str(offset) + " -value- " + str(value))
+    logmsg=""
+    if offset == 33: #Battery and Door Time
+        op="Battery"
+        msgval['OP']=op
+        operation.append(op)
+        #Battery ADC Calculation, Battery full 0xbd, and dies at 0x61/0x5f.
+        #ADC Start for Pet Door, not sure if this is consistent or just my door
+        adcstart=2.1075
+        #ADC Step value for each increment of the adc value 
+        adcstep=0.0225
+        battadc = (int(message[1])*adcstep)+adcstart
+        msgval['Battery']=str(battadc)
+        msgval['Time']=converttime(message[2:4])
+        sqlcmd('UPDATE devices SET battery=' + str(battadc) + ' WHERE mac_address = "' + mac_address + '"')
     elif offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
         op="SetTime"
         msgval['OP']=op
         operation.append(op)
         msgval['Time']=converttime(message[1:3])
-        #logmsg += device + " " + operation + "-Time    : "+ int(message[1]) +":"+ int(message[2])
-        #if int(message[0]) > 2:
-        #    logmsg += "Addional bytes:"+tohex(message[3:])
     elif offset == 36: #Lock state
         op="LockState"
         msgval['OP']=op
         operation.append(op)
         msgval['Lock']=LockState(int(message[1])).name
-        #logmsg += device + " " + operation + "-Lockstate       : "+ pDLockState[int(message[1])]
-        #if int(message[0]) > 1:
-        #    logmsg += "Addional bytes:"+tohex(message[2:])
+        sqlcmd('UPDATE doors SET lockingmode='+ str(message[1]) +' WHERE mac_address = "' + mac_address + '"')
     elif offset == 40: #Keep pets out allow incoming state
         op="LockedOutState"
         msgval['OP']=op
         operation.append(op)
         msgval['LockedOut']=LockedOutState(int(message[1])).name
-        #logmsg += device + " " + operation + "-Keep pets out   : "+pDKeepPetsOutState[int(message[1])]
-        #if int(message[0]) > 1:
-        #    logmsg += "Addional bytes:"+tohex(message[2:])
     elif offset == 59: #Provisioned Chip Count
         op="PrivChipCount"
         msgval['OP']=op
         operation.append(op)
         msgval['ChipCount']=message[1]
-        #logmsg += device + " " + operation + "-Prov Chip #     : "+(message[1])
-        #if int(message[0]) > 1:
-        #   logmsg += "Addional bytes:"+tohex(message[2:])
     elif offset >= 91 and offset <= 308: #Provisioned chips
         op="ProvChip"
         msgval['OP']=op
@@ -487,7 +496,6 @@ def parsedoorframe(operation,device,offset,value):
         chip=doorhextochip(value[4:]) #Calculate chip Number
         msgval['PetOffset']=pet
         msgval['Chip']=chip
-        #logmsg += device + " " + operation + "-Prov Chip ID   "+ str(pet) + " : Chip number " + chip
     elif offset == 519: #Curfew
         op="Curfew"
         msgval['OP']=op
@@ -495,7 +503,7 @@ def parsedoorframe(operation,device,offset,value):
         msgval['CurfewState']=CurfewState(message[1]).name
         msgval['CurfewOn']=str(message[2]).zfill(2)+":"+str(message[3]).zfill(2)
         msgval['CurfewOff']=str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
-        #logmsg += device + " " + operation + "-Curfew          : "+pDCurfewState[message[1]] + " Lock: "+str(message[2]).zfill(2)+":"+str(message[3]).zfill(2) + " Unlock: "+str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
+        sqlcmd('UPDATE doors SET curfewenabled='+ str(message[1]) +' WHERE mac_address = "' + mac_address + '"')
     elif offset >= 525 and offset <= 618: #Pet movement state in or out
         op="PetMovement"
         msgval['OP']=op
@@ -506,7 +514,7 @@ def parsedoorframe(operation,device,offset,value):
         else:
             direction = "Other " + hb(message[3])
         msgval['PetOffset']=pet
-        msgval['Animal']=petnamebydevice(device, pet)
+        msgval['Animal']=petnamebydevice(mac_address, pet)
         msgval['Direction']=direction
         operation.append("PetMovement")
     elif offset == 621: #Unknown pet went outside
@@ -517,15 +525,11 @@ def parsedoorframe(operation,device,offset,value):
         msgval['Animal']="Unknown Pet"
         msgval['Direction']="Outside"
         msgval['State']="OFF"
-#        logmsg += device + " " + operation + "-Pet Movement    : Unknown pet went outside " + value
     else:
         op="Other"
         msgval['OP']=op
         operation.append(op)
         msgval['MSG']=value
-        #print("Other ", value)
-        #logmsg += device + " " + operation + "-Other offset    : " + value
-        #print("other offset" + logmsg)
     response.append(msgval)
     response.append({"OP":operation})
     return response
@@ -533,7 +537,7 @@ def parsedoorframe(operation,device,offset,value):
 def inithubmqtt():
     response = dict();
     #Devices
-    curs.execute('select name,product_id,devices.mac_address,battery,led_mode,pairing_mode,curfewenabled,lock_time,unlock_time,lockingmode,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
+    curs.execute('select name,product_id,devices.mac_address,serial_number,version,state,battery,led_mode,pairing_mode,curfewenabled,lock_time,unlock_time,lockingmode,bowl1,bowl2,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
     devices = curs.fetchall()
     if devices:
         response['devices'] = devices
@@ -544,88 +548,111 @@ def inithubmqtt():
     return Box(response)
 
 def decodehubmqtt(topic,message):
-    response = dict();
+    response = Box();
     msgsplit=message.split()
     topicsplit=topic.split('/')
-    device=topicsplit[-1:][0]
+    mac_address=topicsplit[-1]
 
     #Decode device name
-    if device=="messages":
-        curs.execute('select name from devices where product_id=1')
+    if mac_address=="messages":
+        curs.execute('select name,mac_address,product_id from devices where product_id=1')
         devicename = curs.fetchone()
         if devicename:
-            response['device'] = str(devicename.name)
+            response.device = str(devicename.name)
+            response.mac_address = str(devicename.mac_address)
+            mac_address = devicename.mac_address
         timestampstr = str(datetime.utcfromtimestamp(int(ts,16)))
     else:
-        curs.execute('select name from devices where mac_address=(?)', ([device]))
+        curs.execute('select name,mac_address,product_id from devices where mac_address=(?)', ([mac_address]))
         devicename = curs.fetchone()
         if devicename:
-            response['device'] = str(devicename.name)
+            response.device = str(devicename.name)
+            response.mac_address = mac_address
         else:
-            response['device'] = str(device)
+            response.device = str(mac_address)
+            response.mac_address = str(devicename.mac_address)
         timestampstr = str(datetime.utcfromtimestamp(int(msgsplit[0],16)))
-    response['message'] = msgsplit
-    response['timestamp']=timestampstr
+    response.message = message
+    response.timestamp=timestampstr
 
-    #Timestamp calculations
-
+    #Determine operation
     if msgsplit[1] == "1000":
         operation = "Command"
     else:
         operation = "Status"
-    response['operation'] = operation
+    response.operation = operation
 
     resp = []
+    msgval = Box()
     #Device message
     if msgsplit[0] == "Hub": #Hub Offline Last Will message
-        resp.append({"Msg":message})
-        resp.append({"OP":["Boot"]})
+        op="State"
+        msgval.OP=op
+        msgval.Msg=message
+        msgval[op]='Offline'
+        resp.append(msgval)
+        resp.append({"OP":[op]})
+        #Update state in database
+        sqlcmd('UPDATE hubs SET state=0 WHERE mac_address = "' + mac_address + '"')
         response['message'] = resp
-    elif msgsplit[2] == "Hub": #Hub online / boot message
-        resp.append({"Msg":" ".join(msgsplit[2:])})
-        resp.append({"OP":["Boot"]})
+    elif msgsplit[2] == "Hub": #Hub online message
+        op="State"
+        msgval.OP=op
+        msgval.Msg=message
+        msgval[op]='Online'
+        resp.append(msgval)
+        resp.append({"OP":[op]})
+        #Update state in database
+        sqlcmd('UPDATE hubs SET state=1 WHERE mac_address = "' + mac_address + '"')
         response['message'] = resp
     elif msgsplit[2] == "10": #Hub Uptime
         op="Uptime"
-        msgval = {}
-        msgval['OP']=op
-        msgval[op]=str(int(msgsplit[3]))
-        msgval['TS']=msgsplit[4]+"-"+':'.join(format(int(x), '02d') for x in msgsplit[5:8])
-        msgval['Reconnect']=msgsplit[9]
+        uptime = str(int(msgsplit[3]))
+        msgval.OP=op
+        msgval[op]=uptime
+        msgval.TS=msgsplit[4]+"-"+':'.join(format(int(x), '02d') for x in msgsplit[5:8])
+        msgval.Reconnect=msgsplit[9]
         resp.append(msgval)
         resp.append({"OP":[op]})
+        #Update uptime in database
+        sqlcmd('UPDATE hubs SET Uptime=' + uptime + ' WHERE mac_address = "' + mac_address + '"')
         response['message'] = resp
-    elif msgsplit[2] == "127": #127 Feeder frame sent/control message
+    elif msgsplit[2] == "132" and EntityType(int(devicename.product_id)).name == "HUB": #Hub Frame
+        if PrintHubFrame:
+            print("Hub Message : "+message)
+        msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
+        response['message'] = parsehubframe(mac_address,int(msgsplit[4]),"".join(msgsplit[5:]))
+    elif msgsplit[2] == "132" and EntityType(int(devicename.product_id)).name == "PETDOOR": #Pet Door Status
+        #Status message has a counter at offset 4 we can ignore:
+        if Print132Frame:
+            print("132 Message : "+message)
+        msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
+        #print("Message :", "".join(msgsplit[5:]))
+        response['message'] = parsedoorframe(mac_address, int(msgsplit[4]),"".join(msgsplit[5:]))
+    elif msgsplit[2] == "132" and EntityType(int(devicename.product_id)).name == "FEEDER": #Feeder 132 Status
+        #Status message has a counter at offset 4 we can ignore:
+        if PrintFeederFrame:
+            print("Feeder 132 Message : "+message)
+        msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
+        #print("Message :", "".join(msgsplit[5:]))
+        response['message'] = parsefeederframe(mac_address, int(msgsplit[4]),"".join(msgsplit[5:]))
+    elif msgsplit[2] == "127": #127 Feeder/CatDoor frame sent/control message
         singleframe = bytearray.fromhex("".join(msgsplit[3:]))
         singleresponse = []
-        singleframeresponse = parseframe(device, singleframe)
+        singleframeresponse = parseframe(mac_address, singleframe)
         singleresponse.append(singleframeresponse)
         op=singleframeresponse['OP']
         singleresponse.append({"OP":[op]})
         response['message'] = singleresponse
-    elif msgsplit[2] == "126": #126 Feeder multiframe status message
+    elif msgsplit[2] == "126": #126 Feeder/CatDoor multiframe status message
         multiframe = bytearray.fromhex("".join(msgsplit[3:]))
-        response['message'] = parsemultiframe(device,multiframe)
-    elif msgsplit[2] == "132" and device != "messages" : #Pet Door Status
-        #Status message has a counter at offset 4 we can ignore:
-        if Print132Frame:
-            print("132 Message : "+message)
-        msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
-        #print("Message :", "".join(msgsplit[5:]))
-        response['message'] = parsedoorframe(operation,device, int(msgsplit[4]),"".join(msgsplit[5:]))
-    elif msgsplit[2] == "132" and device == "messages": #Hub Frame
-        #Status message has a counter at offset 4 we can ignore:
-        if Print132Frame:
-            print("132 Message : "+message)
-        msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
-        #print("Message :", "".join(msgsplit[5:]))
-        response['message'] = parsehubframe(operation,device, int(msgsplit[4]),"".join(msgsplit[5:]))
-    elif msgsplit[2] == "2" and device != "messages" : #Action message setting value to Pet Door
+        response['message'] = parsemultiframe(mac_address,multiframe)
+    elif msgsplit[2] == "2" and devicename.product_id == 1: #Action message setting value to Pet Door
         #Action message doesn't have a counter
         if Print2Frame:
             print("2 Message : "+message)
         msgsplit[4] = hb(int(msgsplit[4])) #Convert length at offset 4 which is decimal into hex byte so we pass it as a hex string to parsedoorframe
-        response['message'] = parsedoorframe(operation,device, int(msgsplit[3]),"".join(msgsplit[4:]))
+        response['message'] = parsedoorframe(mac_address, int(msgsplit[3]),"".join(msgsplit[4:]))
     elif msgsplit[2] == "8": #Action message setting value to Pet Door
         resp.append({"Msg":message})
         resp.append({"OP":["8"]})
@@ -690,14 +717,13 @@ def decodemiwi(timestamp,source,destination,framestr):
     return "Received frame at: " + timestamp + " from: " + sourcemac + " to: " + destinationmac + " " + logmsg
 
 def buildmqttsendmessage(value):
-#  ts = str(binascii.hexlify(struct.pack('>I', round(datetime.utcnow().timestamp()))),'ascii')
   return ts + " 1000 " + value
 
 #Generate message
-def generatemessage(devicename,operation,state):
+def generatemessage(mac_address,operation,state):
     if PrintDebug:
-        print(devicename,operation,state)
-    curs.execute('select product_id,mac_address from devices where name like (?)', ([devicename]))
+        print(mac_address,operation,state)
+    curs.execute('select product_id from devices where mac_address like (?)', ([mac_address]))
     device = curs.fetchone()
     if PrintDebug:
         print(device)
@@ -731,7 +757,7 @@ def generatemessage(devicename,operation,state):
         if operation == "settime": #Set the time
             now = datetime.now() # Current timestamp
             msgstr = "2 34 2 "+hb(now.hour)+" "+hb(now.minute)
-        if operation == "setcustom": #Set Custom Mode 1
+        if operation == "setcustom": #Set Custom Modes
             msgstr = "2 61 3 00 00 00"
             #bitwise operator with each custom mode a separate bit to enable/disable
             #def setBit(int_type, offset):
@@ -739,13 +765,13 @@ def generatemessage(devicename,operation,state):
             #return(int_type | mask)
 
             #def clearBit(int_type, offset):
-            # mask = ~(1 << offset)
-            # return(int_type & mask)
+            #mask = ~(1 << offset)
+            #return(int_type & mask)
         
         if operation == "setlockstate39":       #Lock state offset 39, was only set on first lock, probably not needed??
             msgstr = "2 39 1 01"
         if operation == "keepin" or operation == "keepout":
-            curs.execute('select lockingmode from doors where mac_address = (?)', ([device.mac_address]))
+            curs.execute('select lockingmode from doors where mac_address = (?)', ([mac_address]))
             lmresp = curs.fetchone()
             lm = lmresp.lockingmode
             print("Current locking mode: ", lm)
@@ -763,12 +789,24 @@ def generatemessage(devicename,operation,state):
                 msgstr = "2 36 1 03"
             else:
                 msgstr = "2 36 1 00"
-        if operation == "setcurfew": #Curfew, EE = Enable State, FF = From HH:MM, TT = To HH:MM
-            curs.execute('select curfewenabled,lock_time,unlock_time from doors where mac_address = (?)', ([device.mac_address]))
+        if operation == "curfewlock":
+            if (state == "ON"):
+                #Curfew lock state 4
+                msgstr = "2 36 1 04"
+            else:
+                #Going to Lock State 0 - Unlocked
+                msgstr = "2 36 1 00"
+
+        if operation == "setcurfewstate": #Curfew, EE = Enable State, FF = From HH:MM, TT = To HH:MM
+            curs.execute('select curfewenabled,lock_time,unlock_time from doors where mac_address = (?)', ([mac_address]))
             curfew = curs.fetchone()
-            print("Current curfew mode: ", curfew)
-            msgstr = "2 519 6 " + hb(curfew.curfewenabled) + " " +curfew.lock_time.replace(':', ' ') + " " + curfew.unlock_time.replace(':', ' ') + " 00"
-        return Box({"topic":"pethublocal/messages/"+device.mac_address, "msg":buildmqttsendmessage(msgstr)})
+            print("Current curfew mode: ", state)
+            if state == "ON":
+                stateval = "02"
+            else:
+                stateval = "01"
+            msgstr = "2 519 6 " + stateval + " " +converttimetohex(curfew.lock_time) + " " + converttimetohex(curfew.unlock_time)  + " 00"
+        return Box({"topic":"pethublocal/messages/"+mac_address, "msg":buildmqttsendmessage(msgstr)})
 
     elif EntityType(int(device.product_id)).name == "FEEDER": #Feeder
         #curs.execute('select mac_address, lockingmode from devices join doors using (mac_address) where name like (?)', ([device]))
@@ -776,6 +814,12 @@ def generatemessage(devicename,operation,state):
         if operation == "getstate":
         #Request message state
             msgstr = "01 00 ZZ 00 TT TT TT TT " + state
+        elif operation == "sendack":
+        #Acknowledge the 18 door state.
+            msgstr = "00 00 ZZ 00 TT TT TT TT VV 00 00"
+            instate=state.split()
+            msgstr = msgstr.replace('ZZ', instate[0])
+            msgstr = msgstr.replace('VV', instate[1])
         elif operation == "ackfeederstatedoor":
         #Acknowledge the 18 door state.
             msgstr = "00 00 ZZ 00 TT TT TT TT 18 00 00"
@@ -801,6 +845,9 @@ def generatemessage(devicename,operation,state):
         elif operation == "getbootstate17":
             #Request boot message state 17
             msgstr = "01 00 ZZ 00 TT TT TT TT 17 00 00"
+        elif operation == "settime":
+            #Set on the feeder
+            msgstr = "07 00 ZZ 00 TT TT TT TT 00 00 00 00 05"
         elif operation == "lidclosedelayfast":
             #Update lid close delay to fast = 0
             msgstr = "09 00 ZZ 00 TT TT TT TT 0d 00 00 00 00"
@@ -848,18 +895,20 @@ def generatemessage(devicename,operation,state):
             print("Unknown message")
 
         hubts = feedertimestampfromnow()
-        devcounter = devicecounter(device.mac_address,"-1","-2") #Iterate the send counter for the device
+        devcounter = devicecounter(mac_address,"-1","-2") #Iterate the send counter for the device
         msgstr = msgstr.replace('ZZ', hb(devcounter['send'])) # Replace device counter in the record
         msgstr = msgstr.replace('TT TT TT TT', " ".join(hubts[i:i+2] for i in range(0, len(hubts), 2))) # Timestamp
-        return Box({"topic":"pethublocal/messages/"+device.mac_address, "msg":buildmqttsendmessage("127 "+msgstr)}) #Need to prefix the message with "127 "
+        #msgstr = msgstr.replace('TT TT TT TT', "43 13 e3 54") # Timestamp
+        return Box({"topic":"pethublocal/messages/"+mac_address, "msg":buildmqttsendmessage("127 "+msgstr)}) #Need to prefix the message with "127 "
 
     elif EntityType(int(device.product_id)).name == "CATFLAP": #Cat Flap
         if operation == "dumpstate": #Dump all memory registers from 0 to 630
             msgstr = "TBC"
-        if operation == "settime":
-            msgstr = "TBC"
-        if operation == "keepin" or operation == "keepout":
-            curs.execute('select lockingmode from doors where mac_address = (?)', ([device.mac_address]))
+        elif operation == "settime":
+            #I assume the same command that is applied to the feeder is the same as the cat flap... TBC.
+            msgstr = "07 00 ZZ 00 TT TT TT TT 00 00 00 00 05"
+        elif operation == "keepin" or operation == "keepout":
+            curs.execute('select lockingmode from doors where mac_address = (?)', ([mac_address]))
             lockingmode = curs.fetchone()
             lm = lockingmode.lockingmode
             print("Current locking mode: ", lm)
@@ -877,12 +926,11 @@ def generatemessage(devicename,operation,state):
                 msgstr = "11 00 ZZ 00 TT TT TT TT 00 00 00 00 00 00 07 04 00 02"
             else:
                 msgstr = "11 00 ZZ 00 TT TT TT TT 00 00 00 00 00 00 07 06 00 02"
-            hubts = feedertimestampfromnow()
-            devcounter = devicecounter(device.mac_address,"-1","-2") #Iterate the send counter for the device
-            msgstr = msgstr.replace('ZZ', hb(devcounter['send'])) # Replace device counter in the record
-            msgstr = msgstr.replace('TT TT TT TT', " ".join(hubts[i:i+2] for i in range(0, len(hubts), 2))) # Timestamp
-            return {"topic":"pethublocal/messages/"+device.mac_address, "msg":buildmqttsendmessage("127 "+msgstr)} #Need to prefix the message with "127 "
-        return buildmqttsendmessage(msgstr)
+        hubts = feedertimestampfromnow()
+        devcounter = devicecounter(mac_address,"-1","-2") #Iterate the send counter for the device
+        msgstr = msgstr.replace('ZZ', hb(devcounter['send'])) # Replace device counter in the record
+        msgstr = msgstr.replace('TT TT TT TT', " ".join(hubts[i:i+2] for i in range(0, len(hubts), 2))) # Timestamp
+        return {"topic":"pethublocal/messages/"+mac_address, "msg":buildmqttsendmessage("127 "+msgstr)} #Need to prefix the message with "127 "
 
     else:
         print("Unknown type")
@@ -892,21 +940,21 @@ def devicecounter(mac_address,send,retrieve):
     #If the send or retrieve counters are -1 we take the current value and iterate it and -2 return the current value
     curs.execute('select send,retrieve from devicecounter where mac_address=(?)', ([mac_address]))
     devcount = curs.fetchone()
-    devc = {"send":-3, "retrieve":-3}
+    devc = Box({"send":-3, "retrieve":-3})
     if send == "-2":
-        devc['send'] = devcount.send
+        devc.send = devcount.send
     if send == "-1":
-        devc['send'] = devcount.send+1
+        devc.send = devcount.send+1
     if send >= "0":
-        devc['send'] = send
+        devc.send = send
     if retrieve == "-2":
-        devc['retrieve'] = devcount.retrieve
+        devc.retrieve = devcount.retrieve
     if retrieve == "-1":
-        devc['retrieve'] = devcount.retrieve+1
+        devc.retrieve = devcount.retrieve+1
     if retrieve >= "0":
-        devc['retrieve'] = retrieve
+        devc.retrieve = retrieve
     cur = conn.cursor()
-    upd = 'UPDATE devicecounter SET send=' + str(devc['send']) + ', retrieve=' + str(devc['retrieve']) + ' WHERE mac_address = "' + mac_address + '"'
+    upd = 'UPDATE devicecounter SET send=' + str(devc.send) + ', retrieve=' + str(devc.retrieve) + ' WHERE mac_address = "' + mac_address + '"'
     cur.execute(upd)
     conn.commit()
     return devc

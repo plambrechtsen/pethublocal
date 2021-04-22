@@ -69,7 +69,7 @@ class LockState(SureEnum): # Lock State IDs.
     KeepIn          = 1
     KeepOut         = 2
     Locked          = 3
-    CURFEW          = 4
+    Curfew          = 4
     CURFEW_LOCKED   = -1
     CURFEW_UNLOCKED = -2
     CURFEW_UNKNOWN  = -3
@@ -91,17 +91,10 @@ class PetDoorDirection(SureEnum): # Pet Movement on Pet Door coming in or out or
     Inside_81           = 0x81 #Ingress if the pet door thought the pet was already inside
     UnknownPet          = 0xd3 #This along with pet 621 is when the pet leaves too quickly for the pet door to read it leaving
 
-class CurfewState(SureEnum): # Sure Petcare API State IDs.
-    ON              = 0
+class CurfewState(SureEnum): # Curfew State
     OFF             = 1
-    ENABLED         = 2
-    STATE3          = 3
-
-class CurfewState(SureEnum): # Sure Petcare API State IDs.
-    DISABLED        = 0
-    ENABLED         = 1
-    STATE2          = 2
-    STATE3          = 3
+    ON              = 2
+    STATUS          = 3
 
 class HubLeds(SureEnum):   # Sure Petcare API LED State offset 0x18
     DIMMED          = 0    #Dimmed Ears
@@ -136,3 +129,14 @@ class AnimalState(SureEnum): # Animal State
     Outside          = 0
     Inside           = 1
 
+class Online(SureEnum): # Online offline
+    Offline          = 0
+    Online           = 1
+
+class Enabled(SureEnum): # Enabled disabled
+    Disabled         = 0
+    Enabled          = 1
+
+class OnOff(SureEnum): # Enabled disabled
+    OFF              = 0
+    ON               = 1
