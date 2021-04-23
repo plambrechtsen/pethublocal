@@ -381,7 +381,7 @@ for device in pethubinit.devices:
         hasepub(devid+'/config',json.dumps(configmessage))
 
         #Hub status message
-        states.hub=Box({"State":Online(device.state).name, "Uptime":"0 Mins", "Name": dev, "Serial": device.serial_number,"MAC Address": mac, "LED Mode":Enabled(device.led_mode).name, "Pairing Mode":Enabled(device.pairing_mode).name })
+        states.hub=Box({"State":Online(device.state).name, "Uptime":"0 Mins", "Name": dev, "Serial": device.serial_number,"MAC Address": mac, "LED Mode":HubLeds(device.led_mode).name, "Pairing Mode":HubAdoption(device.pairing_mode).name })
 
         #Loop version json blob
         version = Box.from_json(device.version)
