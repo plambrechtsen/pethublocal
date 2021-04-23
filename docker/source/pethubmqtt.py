@@ -479,7 +479,7 @@ for device in pethubinit.devices:
         #Init feeder
         log.info("Init Feeder for "+device.name)
         #Get Battery state
-        genmsg = phlp.generatemessage(mac, "getstate", "0c 00") # Message 0c for Battery
+        genmsg = phlp.generatemessage(mac, "dumpstate", "0c 00") # Message 0c for Battery
         hubpub(genmsg.topic,genmsg.msg)
 
         genmsg = phlp.generatemessage(mac, "settime", "") # Message 0c for Battery
