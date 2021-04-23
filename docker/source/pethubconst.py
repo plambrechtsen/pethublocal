@@ -129,6 +129,7 @@ class Animal(SureEnum): # Animal mdi mapping
 class AnimalState(SureEnum): # Animal State
     Outside          = 0
     Inside           = 1
+    Unknown          = 2
 
 class Online(SureEnum): # Online offline
     Offline          = 0
