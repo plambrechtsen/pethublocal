@@ -216,6 +216,7 @@ def makedb(data):
                 if PrintDebug:
                     print('Feeders: mac_address = {0}, bowltype={1}, bowl1=, bowl2=, bowltarget1={2}, bowltarget2={3}, close_delay={4}'.format(mac_address, bowltype, bowltarget1, bowltarget2, close_delay))
                 sqlcmdvar(conn, "INSERT INTO feeders values((?), (?), 0, 0, (?), (?), (?));", (mac_address, bowltype, bowltarget1, bowltarget2, close_delay))
+                sqlcmdvar(conn, "INSERT INTO devicecounter values((?), 0, 0);", [mac_address])
 
             if product_id == 6: #Cat Door
                 if 'enabled' in device.control.curfew:

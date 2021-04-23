@@ -811,7 +811,7 @@ def generatemessage(mac_address,operation,state):
     elif EntityType(int(device.product_id)).name == "FEEDER": #Feeder
         #curs.execute('select mac_address, lockingmode from devices join doors using (mac_address) where name like (?)', ([device]))
         #macaddy = curs.fetchone()
-        if operation == "getstate":
+        if operation == "dumpstate":
         #Request message state
             msgstr = "01 00 ZZ 00 TT TT TT TT " + state
         elif operation == "sendack":
@@ -930,7 +930,7 @@ def generatemessage(mac_address,operation,state):
         devcounter = devicecounter(mac_address,"-1","-2") #Iterate the send counter for the device
         msgstr = msgstr.replace('ZZ', hb(devcounter['send'])) # Replace device counter in the record
         msgstr = msgstr.replace('TT TT TT TT', " ".join(hubts[i:i+2] for i in range(0, len(hubts), 2))) # Timestamp
-        return {"topic":"pethublocal/messages/"+mac_address, "msg":buildmqttsendmessage("127 "+msgstr)} #Need to prefix the message with "127 "
+        return Box({"topic":"pethublocal/messages/"+mac_address, "msg":buildmqttsendmessage("127 "+msgstr)}) #Need to prefix the message with "127 "
 
     else:
         print("Unknown type")
