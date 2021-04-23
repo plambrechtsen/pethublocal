@@ -96,16 +96,17 @@ class CurfewState(SureEnum): # Curfew State
     ON              = 2
     STATUS          = 3
 
-class HubLeds(SureEnum):   # Sure Petcare API LED State offset 0x18
-    DIMMED          = 0    #Dimmed Ears
-    BRIGHT          = 1    #Bright Ears
-    OFF             = 4    #Ears Off
-    FLASH3          = 0x80 #Flash Leds 3 times
-    FLASH2          = 0x81 #Flash Leds 2 times
+class HubLeds(SureEnum):     # Sure Petcare API LED State offset 0x18
+    Off             = 0      #Ears Off
+    Bright          = 1      #Bright Ears
+    Dimmed          = 4      #Dimmed
+    FlashOff        = 0x80   #Flash Leds 3 times when off
+    FlashBright     = 0x81   #Flash Leds 3 times when bright
+    FlashDimmed     = 0x84   #Flash Leds 3 times when dimmed
 
-class HubAdoption(SureEnum): #Sure Petcare adoption mode 0x15
-    ENABLE          = 0      #Bright Ears
-    DISABLE         = 2      #Dimmed Ears
+class HubAdoption(SureEnum): #Sure Petcare adoption / pairing_mode mode 0x15
+    Disabled        = 0      #Not attempting to pair a new device
+    Enabled         = 2      #In pairing / adoption mode
 
 class ProvChipState(SureEnum): # Chip Provisioned State
     ENABLED         = 0
