@@ -528,7 +528,7 @@ log.info("Load Pets from pethublocal.db and create Home Assistant MQTT discovery
 for pet in pethubinit.pets:
     pn = pet.name
     pnid = pn.replace(' ', '_').lower()
-    if pet.product_id == 3: #Pet Door
+    if pet.product_id == 3 or pet.product_id == 6: #Pet Door or Cat Flap
         log.info("Loading Pet: "+pn+" for door "+pet.device)
         configmessage={"name": pn, "icon": "mdi:"+Animal(pet.species).name, "unique_id": "pet_"+pnid, "state_topic": ha_pet_topic+pnid+"/state"}
         happub(pnid+'/config',json.dumps(configmessage))
@@ -557,7 +557,6 @@ for pet in pethubinit.pets:
         if PrintDebug:
             log.debug(bowlstate)
         happub(pnid+'_bowl/state',json.dumps(bowlstate))
-
 
 #Everything done so ready to subscribe to the topics we care about.
 log.info("Subscribe to pethublocal and home assistant topics")
