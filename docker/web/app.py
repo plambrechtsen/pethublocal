@@ -1,18 +1,27 @@
-import os, requests, sys, json
+import os, requests, sys, json, threading, time
 from datetime import datetime, timezone
 from flask import Flask, request, send_file, make_response
 from werkzeug.serving import WSGIRequestHandler
 app = Flask(__name__)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 1
 
-port=443
+#This could be useful in the future ... just saying. ;)
+SupportFirmware = False
+bootloader='1.177' #Bootloader value sent by hub during firmware update
+
+httpsport=443
+httpport=80
 hostname='0.0.0.0'
 directory='/web/creds/'
-#hostname='192.168.20.242'
 #directory=''
 
-#Define the IP address directly as you can't rely on local DNS.
-surehubio='54.146.28.80'
+#Load SUREHUBIO from environment variable
+if os.environ.get('SUREHUBIO') is not None:
+    print("SUREHUBIO from environment set in config.ini")
+    surehubio=os.environ.get('SUREHUBIO')
+else:
+    print("SUREHUBIO hard-coded in app.py")
+    surehubio='18.233.141.2'
 
 #Log stderr to screen and file, as stderr is logged by default in docker compose
 te = open(directory + 'https.log','a', buffering=1)
@@ -28,19 +37,46 @@ class Unbuffered:
 
 sys.stderr=Unbuffered(sys.stderr)
 
+def dlfirmware(serialnumber,page):
+    page=str(page)
+    url = 'http://'+surehubio+'/api/firmware'
+    headers = {'User-Agent': 'curl/7.22.0 (x86_64-pc-linux-gnu) libcurl/7.22.0 OpenSSL/1.0.1 zlib/1.2.3.4 libidn/1.23 librtmp/2.3', 'Content-Type':'application/x-www-form-urlencoded', 'Host':'hub.api.surehub.io', 'Connection': None, 'Accept-Encoding': None }
+    postdata='serial_number='+serialnumber+'&page='+page+'&bootloader_version='+bootloader
+    response = requests.post(url, data = postdata, headers=headers, verify=False)
+    response.raise_for_status() # ensure we notice bad responses
+    payload=response.content
+    filename=directory+serialnumber+'-'+bootloader+'-'+str(page).zfill(2)+'.bin'
+    file = open(filename, "wb")
+    file.write(payload)
+    file.close()
+
 @app.route("/")
 def hello():
     return "You should be sending a POST request!"
 
-#@app.after_request
-#def apply_caching(response):
-#    response.headers["Content-Length"] = filelength
-#    return response
-
-# Get Image file Routing
+# Credentials Routing to download the credentials file if it hasn't been done already.
 @app.route("/api/credentials",methods = ['POST'])
-def get_image():
+def credentials():
     print("Post payload : " + json.dumps(request.form), file=sys.stderr)
+    #Download hub firmware for backup purposes.
+    if SupportFirmware:
+        firmware=directory+request.form['serial_number']+'-'+bootloader+'-00.bin'
+        if not os.path.isfile(firmware):
+            #Download header firmware file
+            print("Download first firmware record")
+            dlfirmware(request.form['serial_number'],0)
+            with open(firmware, "rb") as f:
+                #Read the header
+                byte = f.read(36).decode("utf-8").split()
+                #Record count in hex
+                recordcount=int(byte[2], 16)+6
+                print("Count ",recordcount)
+                for counter in range(1,recordcount):
+                    print("Download remaining record ",counter)
+                    dlfirmware(request.form['serial_number'],counter)
+        else:
+            print("Firmware already downloaded " + firmware, file=sys.stderr)
+
     filename=directory+request.form['serial_number']+'-'+request.form['mac_address']+'-'+request.form['firmware_version']+'.bin'
     if not os.path.isfile(filename):
         print("Credentials file is missing, downloading from Surepet hub.api.surehub.io IP address", file=sys.stderr)
@@ -83,7 +119,44 @@ def get_image():
     response.headers.extend(h)
     return response
 
+# Firmware update
+@app.route("/api/firmware",methods = ['POST'])
+def firmware():
+    print("Post payload : " + json.dumps(request.form), file=sys.stderr)
+    page=str(request.form['page']).zfill(2)
+    filename=request.form['serial_number']+'-'+request.form['bootloader_version']+'-'+page+'.bin'
+    response = make_response(send_file(filename,mimetype='text/html',add_etags=False,cache_timeout=-1,last_modified=None))
+    del response.cache_control.max_age
+    del response.headers['Last-Modified']
+    del response.headers['Expires']
+    del response.headers['Cache-Control']
+    cl = response.headers['Content-Length']
+    del response.headers['Content-Length']
+    del response.headers['Server']
+    del response.headers['Content-Type']
+    utctime = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S %Z")
+    #response.headers['Pragma'] = 'no-cache'
+    h = {
+       'Server': 'nginx/1.18.0 (Ubuntu)',
+       'Date': utctime,
+       'Content-Type': 'text/html; charset=utf-8',
+       'Content-Length': cl,
+       'Connection': 'keep-alive',
+       'Cache-Control': 'no-cache, private'
+    }
+    response.headers.extend(h)
+    return response
+
+def runhttp():
+    app.run(host=hostname,port=httpport)
+
+def runhttps():
+    app.run(host=hostname,port=httpsport,ssl_context=('hub.pem', 'hub.key'))
+
 if __name__ == "__main__":
     WSGIRequestHandler.protocol_version = "HTTP/1.1"
-    app.run(host=hostname,port=port,ssl_context=('hub.pem', 'hub.key'))
-
+    httpsstart = threading.Thread(target=runhttps)
+    httpsstart.start()
+    if SupportFirmware:
+        httpstart = threading.Thread(target=runhttp)
+        httpstart.start()

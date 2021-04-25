@@ -9,5 +9,8 @@ HAMQTTIP=192.168.1.250
 #HAMQTTUSERNAME=user
 #HAMQTTPASSWORD=pass
 
+#Real IP Address for hub.api.surehub.io for web/app.py to download credentials locally as we can't rely on DNS
+SUREHUBIO=18.233.141.2
+
 #Bind IP Address if you want to bind to a specific IP, you need to have a : at the end of the IP
 #BINDIP=192.168.1.251:
