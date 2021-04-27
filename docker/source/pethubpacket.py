@@ -20,7 +20,7 @@
    Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 """
 
-import binascii, struct, time, sys, sqlite3, json, glob
+import binascii, struct, time, sys, sqlite3, json, glob, logging
 
 from datetime import datetime
 from operator import xor
@@ -32,6 +32,8 @@ from box import Box
 
 #Debugging mesages
 PrintFrame = False       #Print the before and after xor frame
+LogFrame = False         #Log the frames to a file
+LogAirFrame = False      #Log the frame sent over the air as a hub mqtt packet to a file
 PrintFrameDbg = False    #Print the frame headers
 Print126Frame = False    #Debug the 2A / 126 feeder frame
 Print127Frame = False    #Debug the 2D / 127 feeder frame
@@ -198,93 +200,95 @@ def parsemultiframe(device, payload):
         frameresponse = parseframe(device, currentframe)
         response.append(frameresponse)
         #Append the operation to a separate array we attach at the end.
-        op=frameresponse['OP']
+        op=frameresponse.OP
         operation.append(op)
         #Remove the parsed payload and loop again
         del payload[0:subframelength]
     response.append({"OP":operation})
     return response
 
-#Parse Feeder and Cat Flap Frame 
+#Parse Feeder, Cat Flap and Felaqua Data Frame or Multi-Frame
 #127 Frame aka 0x7F (127) or 0x2D (Wire value with TBC XOR) are a single payload vs 126 need parsemultiframe as they have multiple messages in a single frame
 def parseframe(device, value):
-    frameresponse = {}
+    frameresponse = Box()
     msg = ""
 
     #Frame timestamp value
-#    print(tohex(value))
-#    print(tohex(value[4:8]))
-    frametimestamp = feedertimestamptostring(bltoi(value[4:8]))
-#    print(str(frametimestamp))
-    frameresponse["framets"]=frametimestamp
+    frameresponse.framets = feedertimestamptostring(bltoi(value[4:8]))
     #The message type and counter are needed for acking back
-    frameresponse["msgdata"]=hb(value[2])+" "+hb(value[0])
+    frameresponse.data=Box({'msg':hb(value[0]),'counter':hb(value[2])})
+#    frameresponse.msgdata=hb(value[0])+" "+hb(value[2])
 
     if value[0] in [0x07, 0x0b, 0x10, 0x16]: #Unknown messages
         op=hb(value[0])
-        frameresponse["OP"]="Msg"+op
-        frameresponse["MSG"]=tohex(value[3:])
+        frameresponse.OP="Msg"+op
+        frameresponse.MSG=tohex(value[3:])
         if Print126Frame:
             print("FF-"+op+": **TODO** Msg " + tohex(value[3:]))
-    elif value[0] == 0x00: #Send Acknowledge for data type
-        frameresponse["OP"]="Ack"
-        frameresponse["MSG"]=hb(value[8])
+    elif value[0] == 0x00: #Send Acknowledge for message type
+        frameresponse.OP="Ack"
+        frameresponse.MSG=hb(value[8])
         if Print126Frame:
             print("FF-00:ACK-" + hb(value[8]))
     elif value[0] == 0x01: #Send query for data type
-        frameresponse["OP"]="Query"
-        frameresponse["MSG"]=hb(value[8])
+        frameresponse.OP="Query"
+        frameresponse.MSG=hb(value[8])
         if Print126Frame:
             print("FF-01:QRY-" + hb(value[8]))
-    elif value[0] == 0x09: #Update state
-        frameresponse["OP"]="UpdateState"
-        submessagevalue = b2is(value[9:12])
-        if value[8]==0x05: # Training mode
-            msg = {"MSG":"FF-09:TRN-" + submessagevalue} #Training Mode
-            frameresponse["SUBOP"]="Training"
-            frameresponse["MODE"]=submessagevalue
-        elif value[8]==0x0a: #Set Left Weight
-            msg += "FF-09:SLW-" + submessagevalue
-            frameresponse["SUBOP"]="SetLeftWeight"
-            frameresponse["WEIGHT"]=submessagevalue
-        elif value[8]==0x0b:
-            msg += "SetRightWeight=" + submessagevalue
-            frameresponse["SUBOP"]="SetRightWeight"
-            frameresponse["WEIGHT"]=submessagevalue
-        elif value[8]==0x0c:
-            msg += "FF-09:SBC-" + FeederBowls(int(submessagevalue)).name
-            frameresponse["SUBOP"]="SetBowls"
-            frameresponse["BOWLS"]=FeederBowls(int(submessagevalue)).name
-        elif value[8]==0x0d:
-            msg += "FF-09:CLD-" + FeederCloseDelay(int(submessagevalue)).name
-            frameresponse["SUBOP"]="SetCloseDelay"
-            frameresponse["DELAY"]=FeederCloseDelay(int(submessagevalue)).name
-        elif value[8]==0x12:
-            msg += "FF-09:?12=" + tohex(value[9:12])
-            frameresponse["SUBOP"]="SetTODO"
-            frameresponse["MSG"]=tohex(value[9:12])
-        elif value[8]==0x17:
-            msg += "ZeroLeftWeight=" + submessagevalue
-            frameresponse["SUBOP"]="ZeroLeftWeight"
-            frameresponse["WEIGHT"]=submessagevalue
-        elif value[8]==0x18:
-            msg += "ZeroRightWeight=" + submessagevalue
-            frameresponse["SUBOP"]="ZeroRigtWeight"
-            frameresponse["WEIGHT"]=submessagevalue
-        elif value[8]==0x19:
-            msg += "FF-09:?19=" + tohex(value[9:12])
-            frameresponse["SUBOP"]="SetTODO"
-            frameresponse["MSG"]=tohex(value[9:12])
+    elif value[0] == 0x09: #Update state messages with subtypes depending on device type
+        if value[3] == 0x06: #Status message on each provisioned chip seen on the Felaqua
+            frameresponse.OP="ChipStatus"
+            frameresponse.ChipOffset=hb(value[8])
+            frameresponse.MSG=tohex(value[9:])
         else:
-            msg += "FF-09:???=" + tohex(value[9:12])
-            frameresponse["SUBOP"]="SetTODO"
-            frameresponse["MSG"]=tohex(value[9:12])
-        if Print126Frame:
-            print(msg)
+            frameresponse.OP="UpdateState"
+            submessagevalue = b2is(value[9:12])
+            if value[8]==0x05: # Training mode
+                msg = {"MSG":"FF-09:TRN-" + submessagevalue} #Training Mode
+                frameresponse.SUBOP="Training"
+                frameresponse.MODE=submessagevalue
+            elif value[8]==0x0a: #Set Left Weight
+                msg += "FF-09:SLW-" + submessagevalue
+                frameresponse.SUBOP="SetLeftWeight"
+                frameresponse.WEIGHT=submessagevalue
+            elif value[8]==0x0b:
+                msg += "SetRightWeight=" + submessagevalue
+                frameresponse.SUBOP="SetRightWeight"
+                frameresponse.WEIGHT=submessagevalue
+            elif value[8]==0x0c:
+                msg += "FF-09:SBC-" + FeederBowls(int(submessagevalue)).name
+                frameresponse.SUBOP="SetBowls"
+                frameresponse.BOWLS=FeederBowls(int(submessagevalue)).name
+            elif value[8]==0x0d:
+                msg += "FF-09:CLD-" + FeederCloseDelay(int(submessagevalue)).name
+                frameresponse.SUBOP="SetCloseDelay"
+                frameresponse.DELAY=FeederCloseDelay(int(submessagevalue)).name
+            elif value[8]==0x12:
+                msg += "FF-09:?12=" + tohex(value[9:12])
+                frameresponse.SUBOP="SetTODO"
+                frameresponse.MSG=tohex(value[9:12])
+            elif value[8]==0x17:
+                msg += "ZeroLeftWeight=" + submessagevalue
+                frameresponse.SUBOP="ZeroLeftWeight"
+                frameresponse.WEIGHT=submessagevalue
+            elif value[8]==0x18:
+                msg += "ZeroRightWeight=" + submessagevalue
+                frameresponse.SUBOP="ZeroRigtWeight"
+                frameresponse.WEIGHT=submessagevalue
+            elif value[8]==0x19:
+                msg += "FF-09:?19=" + tohex(value[9:12])
+                frameresponse.SUBOP="SetTODO"
+                frameresponse.MSG=tohex(value[9:12])
+            else:
+                msg += "FF-09:???=" + tohex(value[9:12])
+                frameresponse.SUBOP="SetTODO"
+                frameresponse.MSG=tohex(value[9:12])
+            if Print126Frame:
+                print(msg)
     elif value[0] == 0x0c: #Battery state for two bytes
-        frameresponse['OP']="Battery"
+        frameresponse.OP="Battery"
         battery = str(int(b2is(value[8:10]))/1000)
-        frameresponse['Battery']=battery
+        frameresponse.Battery=battery
         upd = "UPDATE devices SET battery=" + battery + ' WHERE mac_address = "' + device + '"'
         curs.execute(upd)
         conn.commit()
@@ -298,112 +302,141 @@ def parseframe(device, value):
                 curs.execute('select name from pets where tag=(?)', ([tag]))
                 petval = curs.fetchone()
                 if (petval):
-                    frameresponse["Animal"]=petval.name
+                    frameresponse.Animal=petval.name
                 else:
-                    frameresponse["Animal"]=tag
-                frameresponse["OP"]="Chip"
-                frameresponse["ChipState"]=ProvChipState(value[17]).name
-                frameresponse["MSG"]=tohex(value)
+                    frameresponse.Animal=tag
+                frameresponse.OP="Chip"
+                frameresponse.ChipState=ProvChipState(value[17]).name
+                frameresponse.MSG=tohex(value)
             if value[15] == 0x06: #Un-provisioned Chip on feeder
-                frameresponse["OP"]="Chip"
-                frameresponse["ChipState"]="Empty"
-                frameresponse["MSG"]=tohex(value)
+                frameresponse.OP="Chip"
+                frameresponse.ChipState="Empty"
+                frameresponse.MSG=tohex(value)
             else:
-                frameresponse["OP"]="Unknown"
-                frameresponse["MSG"]=tohex(value)
+                frameresponse.OP="Unknown"
+                frameresponse.MSG=tohex(value)
         if devtype.product_id == 6:
             print("Cat Flap")
             print(tohex(value))
             print("14: ",value[14], " 15 ", value[15], " 16 ", value[16])
             if value[14] == 0x07: #Set Cat Flap Lock State
-                frameresponse["OP"]="LockState"
-                frameresponse['Lock']=CatFlapLockState(int(value[15])).name
-                frameresponse["MSG"]=tohex(value)
+                frameresponse.OP="LockState"
+                frameresponse.Lock=CatFlapLockState(int(value[15])).name
+                frameresponse.MSG=tohex(value)
             else:
-                frameresponse["OP"]="Unknown"
-                frameresponse["MSG"]=tohex(value)
+                frameresponse.OP="Unknown"
+                frameresponse.MSG=tohex(value)
     elif value[0] == 0x13: #Pet Movement through cat door
         tag = feederhextochip(tohex(value[18:25]))
         curs.execute('select name from pets where tag=(?)', ([tag]))
         petval = curs.fetchone()
         if (petval):
-            frameresponse["Animal"]=petval.name
+            frameresponse.Animal=petval.name
         else:
-            frameresponse["Animal"]=tag
+            frameresponse.Animal=tag
         AnimalDirection=(value[16] << 8) + value[17]
         print(AnimalDirection)
         if CatFlapDirection.has_value(AnimalDirection):
-            frameresponse["Direction"]=CatFlapDirection(AnimalDirection).name
+            frameresponse.Direction=CatFlapDirection(AnimalDirection).name
         else:
-            frameresponse["Direction"]="**UNKNOWN**"
-        if frameresponse["Direction"] != "Status":
-            frameresponse["OP"]="PetMovement"
+            frameresponse.Direction="**UNKNOWN**"
+        if frameresponse.Direction != "Status":
+            frameresponse.OP="PetMovement"
         else:
-            frameresponse["OP"]="PetMovementStatus"
-        frameresponse["MSG"]=tohex(value)
+            frameresponse.OP="PetMovementStatus"
+        frameresponse.MSG=tohex(value)
     elif value[0] == 0x18:
-        frameresponse["OP"]="Feed"
+        frameresponse.OP="Feed"
         #Hard code feeder states
         if FeederState.has_value(value[15]):
             if value[15] in range(4, 8):
                 tag="Manual"
-                frameresponse["Animal"]="Manual"
+                frameresponse.Animal="Manual"
             else:
                 tag = feederhextochip(tohex(value[8:15]))
                 curs.execute('select name from pets where tag=(?)', ([tag]))
                 petval = curs.fetchone()
                 if (petval):
-                    frameresponse["Animal"]=petval.name
+                    frameresponse.Animal=petval.name
                 else:
-                    frameresponse["Animal"]=tag
+                    frameresponse.Animal=tag
             action=FeederState(int(value[15])).name
             feederopenseconds=b2iu(value[16:17])
             scaleleftfrom=b2ih(value[19:23])
             scaleleftto=b2ih(value[23:27])
             scalerightfrom=b2ih(value[27:31])
             scalerightto=b2ih(value[31:35])
-            frameresponse["FA"]=action
-            frameresponse["FOS"]=feederopenseconds
-            frameresponse["SLF"]=scaleleftfrom #Or if single bowl
-            frameresponse["SLT"]=scaleleftto
-            frameresponse["SRF"]=scalerightfrom
-            frameresponse["SRT"]=scalerightto
+            frameresponse.FA=action
+            frameresponse.FOS=feederopenseconds
+            frameresponse.SLF=scaleleftfrom #Or if single bowl
+            frameresponse.SLT=scaleleftto
+            frameresponse.SRF=scalerightfrom
+            frameresponse.SRT=scalerightto
             #Return bowl count
             curs.execute('select bowltype from feeders where mac_address=(?)', ([device]))
             bowlval = curs.fetchone()
             if (bowlval):
-                frameresponse["BC"]=bowlval.bowltype
+                frameresponse.BC=bowlval.bowltype
             else:
-                frameresponse["BC"]=1
+                frameresponse.BC=1
             #response.append(frameresponse)
             if Print126Frame:
                 print("FF-18: Feeder door change - chip="+tag+",action="+action+',feederopenseconds='+ b2iu(value[16:17])+',scaleleftfrom='+b2ih(value[19:23])+',scaleleftto='+b2ih(value[23:27])+',scalerightfrom='+b2ih(value[27:31])+',scalerightto='+b2ih(value[31:35]))
         else:
-            frameresponse["OP"]="Unknown"
-            frameresponse["MSG"]=tohex(value)
+            frameresponse.OP="Unknown"
+            frameresponse.MSG=tohex(value)
+    elif value[0] == 0x1B: #Felaqua Drinking frame, similar to a feeder frame but slightly different
+        frameresponse.OP="Drinking"
+        #Different operation values I assume
+        drinkaction=hb(value[8])     #Action performed
+        drinktime=b2iu(value[9:11])  #Time spent
+        drinkfrom=b2ih(value[12:16]) #Weight From
+        drinkto=b2ih(value[16:20])   #Weight To
+        drinkdiff=str(float(drinkto)-float(drinkfrom))
+        frameresponse.Action=drinkaction
+        frameresponse.Time=drinktime
+        frameresponse.WeightFrom=drinkfrom
+        frameresponse.WeightTo=drinkto
+        frameresponse.WeightDiff=drinkdiff
+        frameresponse.MSG=tohex(value)
+        #Update current bowl weight value in database
+        upd = "UPDATE feeders SET bowl1=" + drinkdiff + ' WHERE mac_address = "' + device + '"'
+        curs.execute(upd)
+        conn.commit()
+        if len(value) > 27:      #Includes the chip that performed the action
+            tag = feederhextochip(tohex(value[27:34]))
+            print("Hex tag",tohex(value[27:34]))
+            curs.execute('select name from pets where tag=(?)', ([tag]))
+            petval = curs.fetchone()
+            if (petval):
+                frameresponse.Animal=petval.name
+            else:
+                frameresponse.Animal=tag
+        if Print126Frame:
+            print("FF-1B: Felaqua action="+action+',seconds='+ drinktime+',drinkfrom='+drinkfrom+',drinkto='+drinkto)
     else:
-        frameresponse["OP"]="Unknown"
-        frameresponse["MSG"]=tohex(value)
+        frameresponse.OP="Unknown"
+        frameresponse.MSG=tohex(value)
     return frameresponse
 
 #Parse Hub Frames aka 132's sent to the hub
 def parsehubframe(mac_address,offset,value):
     response = []
-    msgval = Box()
+    frameresponse = Box()
     message=bytearray.fromhex(value)
     if PrintHubFrame:
         print("Hub Frame: MAC Address: " + mac_address + " offset " + str(offset) + " -value- " + str(value))
     if offset == 15: #Adoption Mode
         opvalue = str(int(message[1]))
         operation="Adopt"
-        msgval.OP=operation
-        msgval[operation]=opvalue
-        sqlcmd('UPDATE hubs SET pairing_mode=' + opvalue + ' WHERE mac_address = "' + mac_address + '"')
+        frameresponse.OP=operation
+        frameresponse[operation]=opvalue
+        #sqlcmd('UPDATE hubs SET pairing_mode=' + opvalue + ' WHERE mac_address = "' + mac_address + '"')
     elif offset == 18: #LED Mode
         opvalue = str(int(message[1]))
         operation="LED"
-        msgval.OP=operation
-        msgval[operation]=opvalue
+        frameresponse.OP=operation
+        frameresponse[operation]=opvalue
         sqlcmd('UPDATE hubs SET led_mode=' + opvalue + ' WHERE mac_address = "' + mac_address + '"')
     else:
         if message[0] >= 4: #This is a register dump message
@@ -412,36 +445,36 @@ def parsehubframe(mac_address,offset,value):
             operation="Boot"
         else:
             operation="Other"
-        msgval.OP=operation
-        msgval[operation]=operation
-    response.append(msgval)
+        frameresponse.OP=operation
+        frameresponse[operation]=operation
+    response.append(frameresponse)
     response.append({"OP":operation})
     return response
 
 def parsefeederframe(mac_address,offset,value):
     #The 132 Status messaes only have a 33 type for the time and battery, but both values are busted.
     response = []
-    msgval = Box()
+    frameresponse = Box()
     message=bytearray.fromhex(value)
     if PrintFeederFrame:
         print("Hub Frame: MAC Address: " + mac_address + " offset " + str(offset) + " -value- " + str(value))
     if offset == 33: #Battery and Door Time
         operation="Feeder132Battery"
-        msgval.OP=operation
+        frameresponse.OP=operation
         #Battery ADC Calculation, Battery full 0xbd, and dies at 0x61/0x5f.
         #ADC Start for Pet Door, not sure if this is consistent or just my door
         adcstart=2.1075
         #ADC Step value for each increment of the adc value 
         adcstep=0.0225
         battadc = (int(message[1])*adcstep)+adcstart
-        msgval['Battery']=str(battadc)
-        msgval['Time']=converttime(message[2:4])
+        frameresponse.Battery=str(battadc)
+        frameresponse.Time=converttime(message[2:4])
     else:
         operation="Other"
-        msgval.OP=operation
-        msgval.MSG=tohex(value)
-        msgval[operation]=operation
-    response.append(msgval)
+        frameresponse.OP=operation
+        frameresponse.MSG=tohex(value)
+        frameresponse[operation]=operation
+    response.append(frameresponse)
     response.append({"OP":[operation]})
     return response
 
@@ -449,14 +482,14 @@ def parsefeederframe(mac_address,offset,value):
 def parsedoorframe(mac_address,offset,value):
     response = []
     operation = []
-    msgval = {}
+    frameresponse = Box()
     message=bytearray.fromhex(value)
     if PrintFrameDbg:
         print("Operation: " + str(operation) + " mac_address " + str(mac_address) + " offset " + str(offset) + " -value- " + str(value))
     logmsg=""
     if offset == 33: #Battery and Door Time
         op="Battery"
-        msgval['OP']=op
+        frameresponse.OP=op
         operation.append(op)
         #Battery ADC Calculation, Battery full 0xbd, and dies at 0x61/0x5f.
         #ADC Start for Pet Door, not sure if this is consistent or just my door
@@ -464,88 +497,89 @@ def parsedoorframe(mac_address,offset,value):
         #ADC Step value for each increment of the adc value 
         adcstep=0.0225
         battadc = (int(message[1])*adcstep)+adcstart
-        msgval['Battery']=str(battadc)
-        msgval['Time']=converttime(message[2:4])
+        frameresponse.Battery=str(battadc)
+        frameresponse.Time=converttime(message[2:4])
         sqlcmd('UPDATE devices SET battery=' + str(battadc) + ' WHERE mac_address = "' + mac_address + '"')
     elif offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
         op="SetTime"
-        msgval['OP']=op
+        frameresponse.OP=op
         operation.append(op)
-        msgval['Time']=converttime(message[1:3])
+        frameresponse.Time=converttime(message[1:3])
     elif offset == 36: #Lock state
         op="LockState"
-        msgval['OP']=op
+        frameresponse.OP=op
         operation.append(op)
-        msgval['Lock']=LockState(int(message[1])).name
+        frameresponse.Lock=LockState(int(message[1])).name
         sqlcmd('UPDATE doors SET lockingmode='+ str(message[1]) +' WHERE mac_address = "' + mac_address + '"')
     elif offset == 40: #Keep pets out allow incoming state
         op="LockedOutState"
-        msgval['OP']=op
+        frameresponse.OP=op
         operation.append(op)
-        msgval['LockedOut']=LockedOutState(int(message[1])).name
+        frameresponse.LockedOut=LockedOutState(int(message[1])).name
     elif offset == 59: #Provisioned Chip Count
         op="PrivChipCount"
-        msgval['OP']=op
+        frameresponse.OP=op
         operation.append(op)
-        msgval['ChipCount']=message[1]
+        frameresponse.ChipCount=message[1]
     elif offset >= 91 and offset <= 308: #Provisioned chips
         op="ProvChip"
-        msgval['OP']=op
+        frameresponse.OP=op
         operation.append(op)
         pet=round((int(offset)-84)/7) #Calculate the pet number
         chip=doorhextochip(value[4:]) #Calculate chip Number
-        msgval['PetOffset']=pet
-        msgval['Chip']=chip
+        frameresponse.PetOffset=pet
+        frameresponse.Chip=chip
     elif offset == 519: #Curfew
         op="Curfew"
-        msgval['OP']=op
+        frameresponse.OP=op
         operation.append(op)
-        msgval['CurfewState']=CurfewState(message[1]).name
-        msgval['CurfewOn']=str(message[2]).zfill(2)+":"+str(message[3]).zfill(2)
-        msgval['CurfewOff']=str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
+        frameresponse.CurfewState=CurfewState(message[1]).name
+        frameresponse.CurfewOn=str(message[2]).zfill(2)+":"+str(message[3]).zfill(2)
+        frameresponse.CurfewOff=str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
         sqlcmd('UPDATE doors SET curfewenabled='+ str(message[1]) +' WHERE mac_address = "' + mac_address + '"')
     elif offset >= 525 and offset <= 618: #Pet movement state in or out
         op="PetMovement"
-        msgval['OP']=op
+        frameresponse.OP=op
         operation.append(op)
         pet=round((int(offset)-522)/3)-1 #Calculate the pet number
         if PetDoorDirection.has_value(message[3]):
             direction = PetDoorDirection(message[3]).name
         else:
             direction = "Other " + hb(message[3])
-        msgval['PetOffset']=pet
-        msgval['Animal']=petnamebydevice(mac_address, pet)
-        msgval['Direction']=direction
+        frameresponse.PetOffset=pet
+        frameresponse.Animal=petnamebydevice(mac_address, pet)
+        frameresponse.Direction=direction
         operation.append("PetMovement")
     elif offset == 621: #Unknown pet went outside
         op="PetMovement"
-        msgval['OP']=op
+        frameresponse.OP=op
         operation.append(op)
-        msgval['PetOffset']="621"
-        msgval['Animal']="Unknown Pet"
-        msgval['Direction']="Outside"
-        msgval['State']="OFF"
+        frameresponse.PetOffset="621"
+        frameresponse.Animal="Unknown Pet"
+        frameresponse.Direction="Outside"
+        frameresponse.State="OFF"
     else:
         op="Other"
-        msgval['OP']=op
+        frameresponse.OP=op
         operation.append(op)
-        msgval['MSG']=value
-    response.append(msgval)
+        frameresponse.MSG=value
+    response.append(frameresponse)
     response.append({"OP":operation})
     return response
 
 def inithubmqtt():
-    response = dict();
+    response = Box();
     #Devices
     curs.execute('select name,product_id,devices.mac_address,serial_number,version,state,battery,led_mode,pairing_mode,curfewenabled,lock_time,unlock_time,lockingmode,bowl1,bowl2,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
     devices = curs.fetchall()
     if devices:
-        response['devices'] = devices
+        response.devices = devices
+    #Pets
     curs.execute('select pets.name as name,species,devices.name as device,product_id,state from pets left outer join petstate on pets.tag=petstate.tag left outer join devices on petstate.mac_address=devices.mac_address;')
     pets = curs.fetchall()
     if pets:
-        response['pets'] = pets
-    return Box(response)
+        response.pets = pets
+    return response
 
 def decodehubmqtt(topic,message):
     response = Box();
@@ -583,88 +617,88 @@ def decodehubmqtt(topic,message):
     response.operation = operation
 
     resp = []
-    msgval = Box()
+    frameresponse = Box()
     #Device message
     if msgsplit[0] == "Hub": #Hub Offline Last Will message
         op="State"
-        msgval.OP=op
-        msgval.Msg=message
-        msgval[op]='Offline'
-        resp.append(msgval)
+        frameresponse.OP=op
+        frameresponse.Msg=message
+        frameresponse[op]='Offline'
+        resp.append(frameresponse)
         resp.append({"OP":[op]})
         #Update state in database
         sqlcmd('UPDATE hubs SET state=0 WHERE mac_address = "' + mac_address + '"')
-        response['message'] = resp
+        response.message = resp
     elif msgsplit[2] == "Hub": #Hub online message
         op="State"
-        msgval.OP=op
-        msgval.Msg=message
-        msgval[op]='Online'
-        resp.append(msgval)
+        frameresponse.OP=op
+        frameresponse.Msg=message
+        frameresponse[op]='Online'
+        resp.append(frameresponse)
         resp.append({"OP":[op]})
         #Update state in database
         sqlcmd('UPDATE hubs SET state=1 WHERE mac_address = "' + mac_address + '"')
-        response['message'] = resp
+        response.message = resp
     elif msgsplit[2] == "10": #Hub Uptime
         op="Uptime"
         uptime = str(int(msgsplit[3]))
-        msgval.OP=op
-        msgval[op]=uptime
-        msgval.TS=msgsplit[4]+"-"+':'.join(format(int(x), '02d') for x in msgsplit[5:8])
-        msgval.Reconnect=msgsplit[9]
-        resp.append(msgval)
+        frameresponse.OP=op
+        frameresponse[op]=uptime
+        frameresponse.TS=msgsplit[4]+"-"+':'.join(format(int(x), '02d') for x in msgsplit[5:8])
+        frameresponse.Reconnect=msgsplit[9]
+        resp.append(frameresponse)
         resp.append({"OP":[op]})
         #Update uptime in database
         sqlcmd('UPDATE hubs SET Uptime=' + uptime + ' WHERE mac_address = "' + mac_address + '"')
-        response['message'] = resp
+        response.message = resp
     elif msgsplit[2] == "132" and EntityType(int(devicename.product_id)).name == "HUB": #Hub Frame
         if PrintHubFrame:
             print("Hub Message : "+message)
         msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
-        response['message'] = parsehubframe(mac_address,int(msgsplit[4]),"".join(msgsplit[5:]))
+        response.message = parsehubframe(mac_address,int(msgsplit[4]),"".join(msgsplit[5:]))
     elif msgsplit[2] == "132" and EntityType(int(devicename.product_id)).name == "PETDOOR": #Pet Door Status
         #Status message has a counter at offset 4 we can ignore:
         if Print132Frame:
             print("132 Message : "+message)
         msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
         #print("Message :", "".join(msgsplit[5:]))
-        response['message'] = parsedoorframe(mac_address, int(msgsplit[4]),"".join(msgsplit[5:]))
+        response.message = parsedoorframe(mac_address, int(msgsplit[4]),"".join(msgsplit[5:]))
     elif msgsplit[2] == "132" and EntityType(int(devicename.product_id)).name == "FEEDER": #Feeder 132 Status
         #Status message has a counter at offset 4 we can ignore:
         if PrintFeederFrame:
             print("Feeder 132 Message : "+message)
         msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
         #print("Message :", "".join(msgsplit[5:]))
-        response['message'] = parsefeederframe(mac_address, int(msgsplit[4]),"".join(msgsplit[5:]))
+        response.message = parsefeederframe(mac_address, int(msgsplit[4]),"".join(msgsplit[5:]))
     elif msgsplit[2] == "127": #127 Feeder/CatDoor frame sent/control message
         singleframe = bytearray.fromhex("".join(msgsplit[3:]))
         singleresponse = []
         singleframeresponse = parseframe(mac_address, singleframe)
         singleresponse.append(singleframeresponse)
-        op=singleframeresponse['OP']
+        op=singleframeresponse.OP
         singleresponse.append({"OP":[op]})
-        response['message'] = singleresponse
+        response.message = singleresponse
     elif msgsplit[2] == "126": #126 Feeder/CatDoor multiframe status message
         multiframe = bytearray.fromhex("".join(msgsplit[3:]))
-        response['message'] = parsemultiframe(mac_address,multiframe)
+        response.message = parsemultiframe(mac_address,multiframe)
     elif msgsplit[2] == "2" and devicename.product_id == 1: #Action message setting value to Pet Door
         #Action message doesn't have a counter
         if Print2Frame:
             print("2 Message : "+message)
         msgsplit[4] = hb(int(msgsplit[4])) #Convert length at offset 4 which is decimal into hex byte so we pass it as a hex string to parsedoorframe
-        response['message'] = parsedoorframe(mac_address, int(msgsplit[3]),"".join(msgsplit[4:]))
+        response.message = parsedoorframe(mac_address, int(msgsplit[3]),"".join(msgsplit[4:]))
     elif msgsplit[2] == "8": #Action message setting value to Pet Door
         resp.append({"Msg":message})
         resp.append({"OP":["8"]})
-        response['message'] = resp
+        response.message = resp
     elif msgsplit[2] == "3": # Boot message - dump memory
         resp.append({"Msg":"Dump to " + msgsplit[4]})
         resp.append({"OP":["Dump"]})
-        response['message'] = resp
+        response.message = resp
     else:
         resp.append({"Msg":message})
         resp.append({"OP":["ERROR"]})
-        response['message'] = resp
+        response.message = resp
     return Box(response)
 
 def decodemiwi(timestamp,source,destination,framestr):
@@ -703,7 +737,7 @@ def decodemiwi(timestamp,source,destination,framestr):
                 print("FF-2D Request : " + sourcemac + " " + tohex(payload))
             singleframeresponse = parseframe(sourcemac, payload)
             response.append(singleframeresponse)
-            op=singleframeresponse['OP']
+            op=singleframeresponse.OP
             response.append({"OP":[op]})
             if len(response) > 0 and Print127Frame:
                 print("FF-2D Response: ", response)
@@ -817,9 +851,8 @@ def generatemessage(mac_address,operation,state):
         elif operation == "sendack":
         #Acknowledge the 18 door state.
             msgstr = "00 00 ZZ 00 TT TT TT TT VV 00 00"
-            instate=state.split()
-            msgstr = msgstr.replace('ZZ', instate[0])
-            msgstr = msgstr.replace('VV', instate[1])
+            msgstr = msgstr.replace('ZZ', state.counter)
+            msgstr = msgstr.replace('VV', state.msg)
         elif operation == "ackfeederstatedoor":
         #Acknowledge the 18 door state.
             msgstr = "00 00 ZZ 00 TT TT TT TT 18 00 00"
@@ -896,7 +929,7 @@ def generatemessage(mac_address,operation,state):
 
         hubts = feedertimestampfromnow()
         devcounter = devicecounter(mac_address,"-1","-2") #Iterate the send counter for the device
-        msgstr = msgstr.replace('ZZ', hb(devcounter['send'])) # Replace device counter in the record
+        msgstr = msgstr.replace('ZZ', hb(devcounter.send)) # Replace device counter in the record
         msgstr = msgstr.replace('TT TT TT TT', " ".join(hubts[i:i+2] for i in range(0, len(hubts), 2))) # Timestamp
         #msgstr = msgstr.replace('TT TT TT TT', "43 13 e3 54") # Timestamp
         return Box({"topic":"pethublocal/messages/"+mac_address, "msg":buildmqttsendmessage("127 "+msgstr)}) #Need to prefix the message with "127 "
@@ -928,7 +961,7 @@ def generatemessage(mac_address,operation,state):
                 msgstr = "11 00 ZZ 00 TT TT TT TT 00 00 00 00 00 00 07 06 00 02"
         hubts = feedertimestampfromnow()
         devcounter = devicecounter(mac_address,"-1","-2") #Iterate the send counter for the device
-        msgstr = msgstr.replace('ZZ', hb(devcounter['send'])) # Replace device counter in the record
+        msgstr = msgstr.replace('ZZ', hb(devcounter.send)) # Replace device counter in the record
         msgstr = msgstr.replace('TT TT TT TT', " ".join(hubts[i:i+2] for i in range(0, len(hubts), 2))) # Timestamp
         return Box({"topic":"pethublocal/messages/"+mac_address, "msg":buildmqttsendmessage("127 "+msgstr)}) #Need to prefix the message with "127 "
 

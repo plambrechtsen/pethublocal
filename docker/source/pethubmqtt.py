@@ -187,13 +187,12 @@ def on_feeder_hub_message(client, obj, msg):
 
     #I have added this in as the feeder seems to need every message acked back to it with a 127, the counter sent to it and the message type.
     for values in pethub['message']:
-        print("Value Loop "+json.dumps(values))
         #Don't ack an existing ack
         if values['OP'] not in ['Ack','Feeder132Battery']:
             #Don't ack the last value in array as that is the message info
             if not isinstance(values['OP'], list):
                 #Not an ack so we need to ack back.
-                ackmsg = phlp.generatemessage(mac_address, "sendack", values.msgdata)
+                ackmsg = phlp.generatemessage(mac_address, "sendack", values.data)
                 hubpub(ackmsg['topic'],ackmsg['msg'])
 
     for values in pethub['message'][-1:][0].values():
@@ -250,7 +249,7 @@ def on_catflap_hub_message(client, obj, msg):
 #            #Don't ack the last value in array as that is the message info
 #            if not isinstance(values['OP'], list):
 #                #Not an ack so we need to ack back.
-#                ackmsg = phlp.generatemessage(mac_address, "sendack", values.msgdata)
+#                ackmsg = phlp.generatemessage(mac_address, "sendack", values.data)
 #                hubpub(ackmsg['topic'],ackmsg['msg'])
 
 
@@ -477,7 +476,6 @@ for device in pethubinit.devices:
         mc.message_callback_add(hub_topic+'/'+mac, on_feeder_hub_message)
 
         #Init feeder
-        log.info("Init Feeder for "+device.name)
         #Get Battery state
         genmsg = phlp.generatemessage(mac, "dumpstate", "0c 00") # Message 0c for Battery
         hubpub(genmsg.topic,genmsg.msg)
@@ -523,6 +521,32 @@ for device in pethubinit.devices:
             if PrintDebug:
                 log.debug(d_sen_t+devid+'_bowl/state'+" " +json.dumps(bowlstate))
             hasepub(devid+'_bowl/state',json.dumps(bowlstate))
+
+    if pid == 8: #Felaqua
+        log.info("Loading Felaqua: "+device.name)
+        if PrintDebug:
+            log.info("Felaqua Payload: "+str(device))
+        #Add callback for felaqua from hub
+        mc.message_callback_add(hub_topic+'/'+mac, on_feeder_hub_message)
+
+        #Get Battery state
+#        genmsg = phlp.generatemessage(mac, "dumpstate", "0c 00") # Message 0c for Battery
+#        hubpub(genmsg.topic,genmsg.msg)
+
+#        genmsg = phlp.generatemessage(mac, "settime", "") # Message 0c for Battery
+#        hubpub(genmsg.topic,genmsg.msg)
+
+        #Configured water bowl
+        states.update({mac:{'Weight':device.bowl1,'Tare':device.bowltarget1}})
+
+        #Feeder State Config
+        configmessage={"name": dev, "icon": "mdi:bowl", "unique_id": "device_"+devid, "stat_t": d_sen_t+devid+"/status", "json_attr_t": d_sen_t+devid+"/status", "val_tpl": "{{value_json['Weight']}}" }
+        hasepub(devid+'/config',json.dumps(configmessage))
+
+        #Set Feeder Sensor Status
+        if PrintDebug:
+            log.debug(d_sen_t+devid+'/status'+" " +json.dumps(states[mac]))
+        hasepub(devid+'/status',json.dumps(states[mac]))
 
 log.info("Load Pets from pethublocal.db and create Home Assistant MQTT discovery config topics")
 for pet in pethubinit.pets:

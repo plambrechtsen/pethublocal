@@ -110,9 +110,10 @@ def makedb(data):
                         print('PetState for Doors: Tag = {0}, mac_address = {1}, timestamp={2}, state={3}'.format(tag, mac_address, timestamp, state))
                     sqlcmdvar(conn, "INSERT INTO petstate values((?), (?), (?), (?));", (tag, mac_address, timestamp, state))
 
+                #Feeders
                 if 'feeding' in pet.status:
                     timestamp = pet.status.feeding.at
-                    if 'device_id' in pet.status.activity:
+                    if 'device_id' in pet.status.feeding:
                         device_id = pet.status.feeding.device_id
                         mac_address = [x for x in devices if x["id"]==device_id][0].mac_address
                     else:
@@ -123,6 +124,22 @@ def makedb(data):
                     if PrintDebug:
                         print('PetState for Feeders: Tag = {0}, mac_address = {1}, timestamp={2}, state={3}'.format(tag, mac_address, timestamp, state))
                     sqlcmdvar(conn, "INSERT INTO petstate values((?), (?), (?), (?));", (tag, mac_address, timestamp, state))
+
+                #Felaqua
+                if 'drinking' in pet.status:
+                    timestamp = pet.status.drinking.at
+                    if 'device_id' in pet.status.drinking:
+                        device_id = pet.status.drinking.device_id
+                        mac_address = [x for x in devices if x["id"]==device_id][0].mac_address
+                    else:
+                        device_id = ''
+                        mac_address = ''
+                    state = json.dumps(pet.status.feeding.change)
+
+                    if PrintDebug:
+                        print('PetState for drinking: Tag = {0}, mac_address = {1}, timestamp={2}, state={3}'.format(tag, mac_address, timestamp, state))
+                    sqlcmdvar(conn, "INSERT INTO petstate values((?), (?), (?), (?));", (tag, mac_address, timestamp, state))
+
 
         for device in data.devices:
             if PrintDebug:
@@ -239,6 +256,17 @@ def makedb(data):
                 if PrintDebug:
                     print('Cat Flaps: mac_address = {0}, curfewenabled={1}, lock_time={2}, unlock_time={3}, lockingmode={4}'.format(mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
                 sqlcmdvar(conn, "INSERT INTO doors values((?), (?), (?), (?), (?), '000000');", (mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
+                sqlcmdvar(conn, "INSERT INTO devicecounter values((?), 0, 0);", [mac_address])
+
+            if product_id == 8: #Water bowl - Felaqua
+                #Not sure if this is even useful, but it seems to be the only value that comes in the device outside the standard ones.
+                if 'tare' in device.control:
+                    bowltarget1 = device.control.tare
+                else:
+                    bowltarget1 = 0
+                if PrintDebug:
+                    print('Felaqua: mac_address = {0}, bowltarget1={1}'.format(mac_address, bowltarget1))
+                sqlcmdvar(conn, "INSERT INTO feeders values((?), 0, 0, 0, (?), 0, 0);", (mac_address, bowltarget1))
                 sqlcmdvar(conn, "INSERT INTO devicecounter values((?), 0, 0);", [mac_address])
 
             if 'tags' in device:

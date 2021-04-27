@@ -58,11 +58,13 @@ class FeederState(SureEnum): # Feeder states
 class FeederCloseDelay(SureEnum): # Feeder Close Delay speed
     Fast        = 0     # Fast delay
     Normal      = 4000  # Normal delay
+    Felaqua     = 5000  # Normal delay
     Slow        = 20000 # Slow delay
 
 class FeederBowls(SureEnum): # Feeder Close Delay speed
-    Single        = 1   # Fast close delay
+    Single        = 1   # RSinFast close delay
     Double        = 2   # Normal delay
+    Felaqua       = 4   # Felaquay
 
 class LockState(SureEnum): # Lock State IDs.
     Unlocked        = 0
@@ -108,9 +110,15 @@ class HubAdoption(SureEnum): #Sure Petcare adoption / pairing_mode mode 0x15
     Disabled        = 0      #Not attempting to pair a new device
     Enabled         = 2      #In pairing / adoption mode
 
+class ProvChipFrom(SureEnum): # Chip Provisioned State
+    Existing        = 0  #Already provisioned on device
+    Button          = 1  #Provisioned chip from learn button on the back
+    NewCloud        = 2  #Provisioned chip from cloud
+    Disabled        = 3  #Provisioned chip from cloud
+
 class ProvChipState(SureEnum): # Chip Provisioned State
-    ENABLED         = 0
-    DISABLED        = 1
+    Enabled         = 0
+    Disabled        = 1
     LOCK            = 2
 
 class CatFlapDirection(SureEnum): # Pet Movement on Cat Flap coming in or going out.
