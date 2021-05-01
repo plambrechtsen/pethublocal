@@ -48,6 +48,8 @@ High resolution photos of both sides of the hub:
 The pads on both sides of the board connect to the other side, so the below photos show the pin connections on both sides of the boards.
 This may not be 100% correct so please check this before connecting anything.
 
+The serial port speed is 57600 8/N/1 with flow control disabled.
+
 <p style="text-align: center;">Front with pins</p> 
 <img src="./Front-WithPins.jpg" height="350">
 <p style="text-align: center;">Back  with pins</p>

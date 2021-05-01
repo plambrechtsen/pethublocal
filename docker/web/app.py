@@ -6,7 +6,7 @@ app = Flask(__name__)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 1
 
 #This could be useful in the future ... just saying. ;)
-SupportFirmware = False
+SupportFirmware = True
 bootloader='1.177' #Bootloader value sent by hub during firmware update
 
 httpsport=443
@@ -124,7 +124,7 @@ def credentials():
 def firmware():
     print("Post payload : " + json.dumps(request.form), file=sys.stderr)
     page=str(request.form['page']).zfill(2)
-    filename=request.form['serial_number']+'-'+request.form['bootloader_version']+'-'+page+'.bin'
+    filename=directory+request.form['serial_number']+'-'+request.form['bootloader_version']+'-'+page+'.bin'
     response = make_response(send_file(filename,mimetype='text/html',add_etags=False,cache_timeout=-1,last_modified=None))
     del response.cache_control.max_age
     del response.headers['Last-Modified']

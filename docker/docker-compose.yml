@@ -35,6 +35,7 @@ services:
     volumes:
       - './output/web:/web/creds'
     ports:
+      - "${BINDIP}80:80"
       - "${BINDIP}443:443"
 
 #pethub Python code using paho mqtt

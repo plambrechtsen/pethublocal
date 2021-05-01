@@ -460,7 +460,7 @@ for device in pethubinit.devices:
             haswpub(devid+"_lock_keepout/state",keepout)
 
         #State Config
-        configmessage={"name": dev, "icon": "mdi:bowl", "unique_id": "device_"+devid, "stat_t": d_sen_t+devid+"/status", "json_attr_t": d_sen_t+devid+"/status", "val_tpl": "{{value_json['State']}}" }
+        configmessage={"name": dev, "icon": "mdi:door", "unique_id": "device_"+devid, "stat_t": d_sen_t+devid+"/status", "json_attr_t": d_sen_t+devid+"/status", "val_tpl": "{{value_json['State']}}" }
         hasepub(devid+'/config',json.dumps(configmessage))
 
         #Set Sensor Status
