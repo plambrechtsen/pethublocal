@@ -5,6 +5,5 @@ mkdir -p /mqtt/msgs
 
 cd /mqtt
 
-exec /usr/bin/mosquitto_sub -h mqtt -p 1883 -v -t "pethublocal/#" | ts | tee /mqtt/msgs/mqtt."$(date +%Y-%m-%d)".log 
-#exec /usr/bin/mosquitto_sub -h local_mqtt -p 1883 -v -t "pethublocal/#" | ts > | tee /mqtt/msgs/mqtt."$(date +%Y-%m-%d)".log 
-#| python /mqtt/mqttsub.py $(date +%Y-%m-%d)
+#Change timestamp to epoch time to make parsing it easier and the same as the pcap files
+exec /usr/bin/mosquitto_sub -h mqtt -p 1883 -F '%U\t%t\t%p' -t "pethublocal/#" | tee /mqtt/msgs/mqtt."$(date +%Y-%m-%d)".log 
