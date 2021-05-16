@@ -7,6 +7,8 @@
 
     Copyright (c) 2021, Peter Lambrechtsen (peter@crypt.nz)
 
+    Used surepy constants 
+
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation; either version 3 of the License, or
@@ -77,21 +79,32 @@ class LockState(SureEnum): # Lock State IDs.
     CURFEW_UNKNOWN  = -3
 
 class CatFlapLockState(SureEnum): # Lock State IDs.
-    Unlocked        = 6
-    KeepIn          = 3
-    KeepOut         = 5
+    Status0         = 0
+    Status1         = 1
+    Normal          = 2  #This is when a cat is provisioned in normal in / out mode
+    KeepIn          = 3  #This applies to the cat when they are individually being kept in, and if the device is 07, then it is applying to the door
     Locked          = 4
+    KeepOut         = 5
+    Unlocked        = 6
+
+class CatLockState(SureEnum): # Lock State IDs.
+    Status0         = 0
+    Status1         = 1
+    Normal          = 2
+    KeepIn          = 3
+    Status4         = 4
+
 
 class LockedOutState(SureEnum): # Locked Out State for preventing animals coming in
     NORMAL          = 2  # Allow pets in
     LOCKED_IN       = 3  # Keep pets out
 
 class PetDoorDirection(SureEnum): # Pet Movement on Pet Door coming in or out or looked in or unknown animal left
-    LookedIn_Outside_40 = 0x40 #This happens if the pet comes up to the door from outside, puts head in and unlocks the door but doesn't come in.
-    Inside_61           = 0x61 #Normal ingress
-    Outside_62          = 0x62 #Normal egress
-    Inside_81           = 0x81 #Ingress if the pet door thought the pet was already inside
-    UnknownPet          = 0xd3 #This along with pet 621 is when the pet leaves too quickly for the pet door to read it leaving
+    Outside_LookedIn    = 0x40 #This happens if the pet comes up to the door from outside, puts head in and unlocks the door but doesn't come in.
+    Inside              = 0x61 #Normal ingress
+    Outside             = 0x62 #Normal egress
+    Inside_Already      = 0x81 #Ingress if the pet door thought the pet was already inside
+    Outside_UnknownPet  = 0xd3 #This along with pet 621 is when the pet leaves too quickly for the pet door to read it leaving
 
 class CurfewState(SureEnum): # Curfew State
     OFF             = 1
@@ -109,6 +122,7 @@ class HubLeds(SureEnum):     # Sure Petcare API LED State offset 0x18
 class HubAdoption(SureEnum): #Sure Petcare adoption / pairing_mode mode 0x15
     Disabled        = 0      #Not attempting to pair a new device
     Enabled         = 2      #In pairing / adoption mode
+    Button          = 0x82   #Pairing mode enabled by pressing "reset" button underneath
 
 class ProvChipFrom(SureEnum): # Chip Provisioned State
     Existing        = 0  #Already provisioned on device
@@ -151,3 +165,7 @@ class OnOff(SureEnum): # Enabled disabled
     Off              = 0
     On               = 1
     Status           = 2
+
+class CurfewOnOff(SureEnum): # Enabled disabled
+    Off              = 1
+    On               = 2

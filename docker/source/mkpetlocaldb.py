@@ -63,7 +63,7 @@ def makedb(data):
         sqlcmd(conn, "CREATE TABLE hubs(mac_address TEXT, led_mode INTEGER, pairing_mode INTEGER, state INTEGER, uptime INTEGER );")
         sqlcmd(conn, "CREATE TABLE doors(mac_address TEXT, curfewenabled INTEGER, lock_time TEXT, unlock_time TEXT, lockingmode INTEGER, custommode TEXT);")
         sqlcmd(conn, "CREATE TABLE feeders(mac_address TEXT, bowltype INTEGER, bowl1 INTEGER, bowl2 INTEGER, bowltarget1 INTEGER, bowltarget2 INTEGER, close_delay INTEGER );")
-        sqlcmd(conn, "CREATE TABLE tagmap(mac_address TEXT, deviceindex INTEGER, tag TEXT, UNIQUE (mac_address, deviceindex) ON CONFLICT REPLACE );")
+        sqlcmd(conn, "CREATE TABLE tagmap(mac_address TEXT, deviceindex INTEGER, tag TEXT, profile INTEGER, UNIQUE (mac_address, deviceindex) ON CONFLICT REPLACE );")
         sqlcmd(conn, "CREATE TABLE pets(tag TEXT, name TEXT, species INTEGER );")
         sqlcmd(conn, "CREATE TABLE petstate(tag TEXT, mac_address TEXT, timestamp TEXT, state BLOB );")
         sqlcmd(conn, "CREATE TABLE devicestate(mac_address TEXT, offset INTEGER, length INTEGER, data TEXT, UNIQUE (mac_address, offset, length) ON CONFLICT REPLACE );")
@@ -273,10 +273,15 @@ def makedb(data):
                 for tag in device.tags:
                     tagindex = tag.index
                     tagid = tag.id
+                    #Cat flap and feeders have a profile, On cat flap profile = 3 = inside only
+                    if tag.profile:
+                        profile=tag.profile
+                    else:
+                        profile=0
                     tag = str([x for x in tags if x["id"]==tagid][0].tag)
                     if PrintDebug:
-                        print('Tagmap: mac_address = {0}, tagindex={1}, tag={2}'.format(mac_address, tagindex, tag))
-                    sqlcmdvar(conn, "INSERT INTO tagmap values((?), (?), (?) );", (mac_address, tagindex, tag))
+                        print('Tagmap: mac_address = {0}, tagindex={1}, tag={2} profile={3}'.format(mac_address, tagindex, tag, profile))
+                    sqlcmdvar(conn, "INSERT INTO tagmap values((?), (?), (?) );", (mac_address, tagindex, tag, profile))
         print("pethublocal.db created/updated")
     else:
         print("Corrupted input file, have you removed the top level data: element?")
@@ -298,7 +303,8 @@ async def petlocaldb():
         exit(1)
     sp = spc.SureAPIClient(email=user, password=password)
     await sp.call(method="GET", resource=spco.MESTART_RESOURCE)
-    if data := Box(sp.resources[spco.MESTART_RESOURCE].get("data", {})):
+    data = Box(sp.resources[spco.MESTART_RESOURCE].get("data", {}))
+    if data.devices:
         makedb(data)
         #Dump response
 #    await sp.close_session()

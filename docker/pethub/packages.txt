@@ -1,3 +1,4 @@
 wheel
 paho-mqtt
 python-box
+configparser

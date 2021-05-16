@@ -6,11 +6,12 @@ app = Flask(__name__)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 1
 
 #This could be useful in the future ... just saying. ;)
-SupportFirmware = True
+DownloadFirmware = True
 bootloader='1.177' #Bootloader value sent by hub during firmware update
 
-httpsport=443
+#The ports the hub needs is hard-coded to 80 for http firmware updates and 443 for the credentials API, so you can't change these.
 httpport=80
+httpsport=443
 hostname='0.0.0.0'
 directory='/web/creds/'
 #directory=''
@@ -22,6 +23,11 @@ if os.environ.get('SUREHUBIO') is not None:
 else:
     print("SUREHUBIO hard-coded in app.py")
     surehubio='18.233.141.2'
+
+#Load DOWNLOADFIRMWARE from environment variable to see if we need to download the firmware if it doesn't exist.
+if os.environ.get('DOWNLOADFIRMWARE') is not None:
+    print("DOWNLOADFIRMWARE from environment set in config.ini")
+    DownloadFirmware=os.environ.get('DOWNLOADFIRMWARE')
 
 #Log stderr to screen and file, as stderr is logged by default in docker compose
 te = open(directory + 'https.log','a', buffering=1)
@@ -52,14 +58,14 @@ def dlfirmware(serialnumber,page):
 
 @app.route("/")
 def hello():
-    return "You should be sending a POST request!"
+    return "You should be sending a POST request, the surehub io simulator only supports posts to /api/firmware and /api/credentials which is what the hub sends!"
 
 # Credentials Routing to download the credentials file if it hasn't been done already.
 @app.route("/api/credentials",methods = ['POST'])
 def credentials():
     print("Post payload : " + json.dumps(request.form), file=sys.stderr)
     #Download hub firmware for backup purposes.
-    if SupportFirmware:
+    if DownloadFirmware:
         firmware=directory+request.form['serial_number']+'-'+bootloader+'-00.bin'
         if not os.path.isfile(firmware):
             #Download header firmware file
@@ -157,6 +163,7 @@ if __name__ == "__main__":
     WSGIRequestHandler.protocol_version = "HTTP/1.1"
     httpsstart = threading.Thread(target=runhttps)
     httpsstart.start()
-    if SupportFirmware:
+    #Firmware is loaded over http, so we need a separate thread listening http on port 80
+    if DownloadFirmware:
         httpstart = threading.Thread(target=runhttp)
         httpstart.start()

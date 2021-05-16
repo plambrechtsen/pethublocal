@@ -12,5 +12,11 @@ HAMQTTIP=192.168.1.250
 #Real IP Address for hub.api.surehub.io for web/app.py to download credentials locally as we can't rely on DNS
 SUREHUBIO=18.233.141.2
 
-#Bind IP Address if you want to bind to a specific IP, you need to have a : at the end of the IP
+#Bind IP Address if you want to bind to a specific IP, you need to have a : at the end of the IP and you need the physical IP bound to your host.
+#Also you will need to make sure if you are adding a secondary IP and you already have a service listening on all ports 443/8883 that they are
+#moved to bind only to your primary IP, the the secondary IP you are adding that docker will use will be able to bind to that IP and port as it is free.
 #BINDIP=192.168.1.251:
+#
+#Webserver settings:
+#Support downloading the firmware for your hub when it first connects to get the credentials
+DOWNLOADFIRMWARE=True

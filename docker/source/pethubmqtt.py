@@ -23,16 +23,17 @@ import sys
 sys.path.append('/code/source')
 
 #import logging
-import json, ast, os, logging, sys, socket
+import json, ast, os, logging, sys, socket, pathlib
 import pethubpacket as phlp
 import paho.mqtt.client as mqtt
 from pethubconst import *
 from box import Box
-from pathlib import Path
+#from pathlib import Path
 from datetime import datetime
+from configparser import ConfigParser
 
 #Debugging mesages
-PrintDebug = False #Print debugging messages
+PrintDebug = True #Print debugging messages
 StateOnStartup = False #Query all known devices state on startup
 
 #Fixed values for MQTT Topic Names
@@ -60,7 +61,7 @@ log.setLevel(logging.DEBUG)
 format = logging.Formatter("%(asctime)s - [%(levelname)-5.5s] - %(message)s")
 ch = logging.StreamHandler(sys.stdout)
 log.addHandler(ch)
-Path("log").mkdir(exist_ok=True)
+pathlib.Path("log").mkdir(exist_ok=True)
 fh = logging.FileHandler('log/pethubmqtt-{:%Y-%m-%d}.log'.format(datetime.now()))
 fh.setFormatter(format)
 log.addHandler(fh)
@@ -68,88 +69,119 @@ log.addHandler(fh)
 #MQTT for pethublocal/hub and home assistant where the hub messages go, the broker sends the messages from the docker hub mqtt instance to your home assistant instance in the mosquitto.conf broker setting
 if os.environ.get('HAMQTTIP') is not None:
     hamqttip = os.environ.get('HAMQTTIP')
-    log.info("HAMQTTIP connecting to "+hamqttip)
-    #If no port was specified connect to 1883
-    if ':' in hamqttip:
-        hamqttipsplit = hamqttip.split(':')
-        mqtthost = hamqttipsplit[0]
-        mqttport = int(hamqttipsplit[1])
-    else:
-        mqtthost = hamqttip
-        mqttport = 1883
-    if PrintDebug:
-        log.debug("HAMQTT Host: "+mqtthost)
-        log.debug("HAMQTT Port: "+str(mqttport))
+    log.info("HAMQTTIP environment: "+hamqttip)
 else:
-    try:
-        result = socket.gethostbyname_ex('mqtt')
-    except:
-        log.info("You're trying to run pethubmqtt.py locally but need to set the environment variable HAMQTTIP to point to your home assistant MQTT instance so exiting")
-        exit(1)
+    parser = ConfigParser()
+    if pathlib.Path("../config.ini").exists():
+        with open("../config.ini") as stream:
+            parser.read_string("[top]\n" + stream.read())
+            if 'top' in parser and 'HAMQTTIP' in parser['top']:
+                log.info("HAMQTTIP from config.ini")
+                hamqttip = parser['top']['HAMQTTIP']
     else:
-        log.info("HAMQTTIP has not been set so connecting to internal mqtt instance")
-        mqtthost = 'mqtt' #Connect to internal mqtt instance if the home assistant one wasn't specified in the env
-        mqttport = 1883
+        try:
+            result = socket.gethostbyname_ex('mqtt')
+        except:
+            log.info("You're trying to run pethubmqtt.py locally but need to set the environment variable HAMQTTIP to point to your home assistant MQTT instance so exiting")
+            exit(1)
+        else:
+            log.info("HAMQTTIP has not been set so connecting to internal mqtt instance")
+            mqtthost = 'mqtt' #Connect to internal mqtt instance if the home assistant one wasn't specified in the env
+            mqttport = 1883
+
+if ':' in hamqttip:
+    hamqttipsplit = hamqttip.split(':')
+    mqtthost = hamqttipsplit[0]
+    mqttport = int(hamqttipsplit[1])
+else:
+    mqtthost = hamqttip
+    mqttport = 1883
+if PrintDebug:
+    log.debug("HAMQTT Host: "+mqtthost)
+    log.debug("HAMQTT Port: "+str(mqttport))
 
 # Feeder
 def on_hub_message(client, obj, msg):
-    pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
-    log.info("Hub Parsed: "+json.dumps(pethub))
-    if PrintDebug:
-        log.info("Hub    Raw: "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
-    devid="hub"
-    for values in pethub['message'][-1:][0].values():
-        if "State" in values: #Hub State Change
-            mv = next((fm for fm in pethub['message'] if fm['OP'] == "State"), None)
-            states.hub.State = mv['State']
-            hasepub(devid+'/status',json.dumps(states.hub))
-        if "Uptime" in values: #Update Uptime
-            mv = next((fm for fm in pethub['message'] if fm['OP'] == "Uptime"), None)
-            states.hub.Uptime = mv['Uptime']+" Mins"
-            hasepub(devid+'/status',json.dumps(states.hub))
+    msgsplit = msg.payload.decode("utf-8").split()
+    if msgsplit[1] != "1000":
+        pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+        log.info("Hub Parsed: "+json.dumps(pethub))
+        if PrintDebug:
+            log.info("Hub    Raw: "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+        devid="hub"
+        for values in pethub['message'][-1:][0].values():
+            if "State" in values: #Hub State Change
+                mv = next((fm for fm in pethub['message'] if fm['OP'] == "State"), None)
+                states.hub.State = mv['State']
+                hasepub(devid+'/status',json.dumps(states.hub))
+            if "Uptime" in values: #Update Uptime
+                mv = next((fm for fm in pethub['message'] if fm['OP'] == "Uptime"), None)
+                states.hub.Uptime = mv['Uptime']+" Mins"
+                hasepub(devid+'/status',json.dumps(states.hub))
 
 # Pet Door
 def on_petdoor_hub_message(client, obj, msg):
-    pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
-    mac_address = msg.topic.split("/")[-1]
-    if PrintDebug:
-        log.info("Door    Raw: "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
-    log.info("Door Parsed: "+json.dumps(pethub))
-    for values in pethub['message'][-1:][0].values():
-        #Update battery state
-        if "Battery" in values: #Update Battery State
-            mv = next((fm for fm in pethub['message'] if fm['OP'] == "Battery"), None)
-            hasepub(mac_address+"_battery/state",mv['Battery'])
-        #Update movements through the pet door
-        if "PetMovement" in values: #Pet Movement 
-            mv = next((fm for fm in pethub['message'] if fm['OP'] == "PetMovement"), None)
-            happub(mv['Animal'].lower()+'/state',mv['Direction'])
+    msgsplit = msg.payload.decode("utf-8").split()
+    if msgsplit[1] != "1000":
+        #We get messages being reflected so ignore the command messages
 
-        #Update lock state
-        if "LockState" in values: #Lock state
-            mv = next((fm for fm in pethub['message'] if fm['OP'] == "LockState"), None)
-            if mv['Lock'] in ["Curfew"]:
-                keepin = "OFF"
-                keepout = "OFF"
-                curfew = "ON"
-            else:
-                curfew = "OFF"
-                if mv['Lock'] in ["KeepIn","Locked"]:
-                    keepin = "ON"
-                else:
+        pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+        mac_address = msg.topic.split("/")[-1]
+        if PrintDebug:
+            log.info("Door    Raw: "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+        log.info("Door Parsed: "+json.dumps(pethub))
+        for values in pethub['message'][-1:][0].values():
+            #Update battery state
+            if "Battery" in values: #Update Battery State
+                mv = next((fm for fm in pethub['message'] if fm['OP'] == "Battery"), None)
+                hasepub(mac_address+"_battery/state",mv['Battery'])
+            #Update movements through the pet door
+            if "PetMovement" in values: #Pet Movement 
+                mv = next((fm for fm in pethub['message'] if fm['OP'] == "PetMovement"), None)
+                happub(mv['Animal'].lower()+'/state',mv['Direction'])
+
+            #Update lock state
+            if "LockState" in values: #Lock state
+                mv = next((fm for fm in pethub['message'] if fm['OP'] == "LockState"), None)
+                if mv['LockState'] in ["Curfew"]:
                     keepin = "OFF"
-                if mv['Lock'] in ["KeepOut","Locked"]:
-                    keepout = "ON"
-                else:
                     keepout = "OFF"
-            haswpub(mac_address+"_lock_keepin/state",keepin)
-            haswpub(mac_address+"_lock_keepout/state",keepout)
-            states[mac_address]['curfew'].State=curfew
-            haswpub(mac_address+'_curfew/status',json.dumps(states[mac_address].curfew))
+                    curfew = "ON"
+                else:
+                    curfew = "OFF"
+                    if mv['LockState'] in ["KeepIn","Locked"]:
+                        keepin = "ON"
+                    else:
+                        keepin = "OFF"
+                    if mv['LockState'] in ["KeepOut","Locked"]:
+                        keepout = "ON"
+                    else:
+                        keepout = "OFF"
+                haswpub(mac_address+"_lock_keepin/state",keepin)
+                haswpub(mac_address+"_lock_keepout/state",keepout)
+                haswpub(mac_address+"_curfew/state",curfew)
 
-            lockmsg = phlp.updatedb('doors',mac_address,'lockingmode', mv['Lock'])
-            if PrintDebug:
-                log.debug("Database updated "+str(lockmsg))
+                #Update state value with change
+                states[mac_address].State=LockState(device.lockingmode).name
+
+                lockmsg = phlp.updatedb('doors',mac_address,'lockingmode', str(mv.LockStateNumber))
+                if PrintDebug:
+                    log.debug("Database updated "+str(lockmsg))
+
+            #Update Curfew state
+            if "Curfew" in values: #Curfew state
+                mv = next((fm for fm in pethub['message'] if fm['OP'] == "Curfew"), None)
+                states[mac_address].curfew.State=mv.CurfewState
+                if PrintDebug:
+                    log.debug("Curfew: "+ json.dumps(states[mac_address].curfew))
+                #haswpub(mac_address+'_curfew/status',json.dumps(states[mac_address].curfew))
+
+                lockmsg = phlp.updatedb('doors',mac_address,'curfewenabled', str(mv.CurfewStateNumber))
+                if PrintDebug:
+                    log.debug("Database updated "+str(lockmsg))
+
+            hasepub(mac_address+'/status',json.dumps(states[mac_address]))
+
 
 # Pet Door Lock Update State
 def on_petdoor_ha_lock_message(client, obj, msg):
@@ -179,112 +211,114 @@ def on_petdoor_ha_curfew_message(client, obj, msg):
 
 # Feeder
 def on_feeder_hub_message(client, obj, msg):
-    pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
-    mac_address = msg.topic.split("/")[-1]
-    log.info("Feeder Parsed: "+json.dumps(pethub))
-    if PrintDebug:
-        log.info("Feeder    Raw: "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+    msgsplit = msg.payload.decode("utf-8").split()
+    if msgsplit[1] != "1000":
+        pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+        mac_address = msg.topic.split("/")[-1]
+        log.info("Feeder Parsed: "+json.dumps(pethub))
+        if PrintDebug:
+            log.info("Feeder    Raw: "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
 
-    #I have added this in as the feeder seems to need every message acked back to it with a 127, the counter sent to it and the message type.
-    for values in pethub['message']:
-        #Don't ack an existing ack
-        if values['OP'] not in ['Ack','Feeder132Battery']:
-            #Don't ack the last value in array as that is the message info
-            if not isinstance(values['OP'], list):
-                #Not an ack so we need to ack back.
-                ackmsg = phlp.generatemessage(mac_address, "sendack", values.data)
-                hubpub(ackmsg['topic'],ackmsg['msg'])
+        #Ack all the messages apart from the acks and the 132's
+        for values in pethub['message']:
+            #Don't ack an existing ack
+            if values['OP'] not in ['Ack','Data132Battery']:
+                #Don't ack the last value in array as that is the message info
+                if not isinstance(values['OP'], list):
+                    #Not an ack so we need to ack back.
+                    ackmsg = phlp.generatemessage(mac_address, "ack", values.data.msg)
+                    hubpub(ackmsg['topic'],ackmsg['msg'])
 
-    for values in pethub['message'][-1:][0].values():
-        if "Battery" in values: #Update Battery State
-            mv = next((fm for fm in pethub['message'] if fm['OP'] == "Battery"), None)
-            hasepub(mac_address+"_battery/state",mv['Battery'])
-        if "Feed" in values:
-            mv = next((fm for fm in pethub['message'] if fm['OP'] == "Feed"), None)
-            if PrintDebug:
-                log.debug("Feeder Message"+str(mv))
-
-            states[mac_address].State=mv['FA']
-
-            if mv['FA'] in ['Animal_Closed','Manual_Closed']:
-                #Update feeder current weight
-                states[mac_address]['Open Seconds']=mv['FOS']
-                states[mac_address]['Left weight']=mv['SLT']
-                states[mac_address]['Right weight']=mv['SRT']
-
-                bowl = {"state":mv['FA'], "left":mv['SLT'],"right":mv['SRT']}
-                if PrintDebug:
-                    log.debug(bowl)
-                #Update amount animal ate
-                petbowl = {"time":mv['FOS'], "left":str(round(float(mv['SLF'])-float(mv['SLT']),2)),"right":str(round(float(mv['SRF'])-float(mv['SRT']),2))}
-                happub(mv['Animal'].lower()+'_bowl/state',json.dumps(petbowl))
-            else:
-                if PrintDebug:
-                    log.debug("Non animal close")
-                bowl = {"state":mv['Animal']+" "+mv['FA'], "left":mv['SLT'],"right":mv['SRT']}
-
-            #Set Feeder Status
-            if PrintDebug:
-                log.debug("Feeder State: "+mac_address+" " +json.dumps(states[mac_address]))
-            hasepub(mac_address+'/status',json.dumps(states[mac_address]))
-
-            #Set Feeder Bowl Status
-            hasepub(mac_address+'_bowl/state',json.dumps(bowl))
-
-# Cat Door
-def on_catflap_hub_message(client, obj, msg):
-    pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
-    mac_address = msg.topic.split("/")[-1]
-    log.info("Cat Flap    Raw: "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
-    log.info("Cat Flap Parsed: "+json.dumps(pethub))
-
-    #I have added this in as the feeder seems to need every message acked back to it with a 127, the counter sent to it and the message type.
-
-#Can someone with a cat flap please test this??
-
-#    for values in pethub['message']:
-#        print("Value Loop "+json.dumps(values))
-#        #Don't ack an existing ack
-#        if values['OP'] not in ['Ack']:
-#            #Don't ack the last value in array as that is the message info
-#            if not isinstance(values['OP'], list):
-#                #Not an ack so we need to ack back.
-#                ackmsg = phlp.generatemessage(mac_address, "sendack", values.data)
-#                hubpub(ackmsg['topic'],ackmsg['msg'])
-
-
-    if pethub['operation'] == 'Status':
         for values in pethub['message'][-1:][0].values():
             if "Battery" in values: #Update Battery State
                 mv = next((fm for fm in pethub['message'] if fm['OP'] == "Battery"), None)
-                hasepub(devid+"_battery/state",mv['Battery'])
-            if "PetMovement" in values: #Pet Movement 
-                mv = next((fm for fm in pethub['message'] if fm['OP'] == "PetMovement"), None)
-                happub(mv['Animal'].lower()+'/state',mv['Direction'])
-            if "LockState" in values: #Lock state
-                mv = next((fm for fm in pethub['message'] if fm['OP'] == "LockState"), None)
-                if mv['Lock'] in ["KeepIn","Locked"]:
-                    keepin = "ON"
-                else:
-                    keepin = "OFF"
-                if mv['Lock'] in ["KeepOut","Locked"]:
-                    keepout = "ON"
-                else:
-                    keepout = "OFF"
-                haswpub(devid+"_lock_keepin/state",keepin)
-                haswpub(devid+"_lock_keepout/state",keepout)
-                topicsplit = msg.topic.split("/")
+                hasepub(mac_address+"_battery/state",mv['Battery'])
+            if "Feed" in values:
+                mv = next((fm for fm in pethub['message'] if fm['OP'] == "Feed"), None)
                 if PrintDebug:
-                    log.debug(str(topicsplit[-1]))
-                lockmsg = phlp.updatedb('doors',topicsplit[-1],'lockingmode', mv['Lock'])
+                    log.debug("Feeder Message"+str(mv))
+
+                states[mac_address].State=mv['FA']
+
+                if mv['FA'] in ['Animal_Closed','Manual_Closed']:
+                    #Update feeder current weight
+                    states[mac_address]['Open Seconds']=mv['FOS']
+                    states[mac_address]['Left weight']=mv['SLT']
+                    states[mac_address]['Right weight']=mv['SRT']
+
+                    bowl = {"left":mv['SLT'],"right":mv['SRT']}
+                    if PrintDebug:
+                        log.debug(bowl)
+
+                    #Set Feeder Bowl Status only when the feeder is closing
+                    hasepub(mac_address+'_bowl/state',json.dumps(bowl))
+
+                    #Update amount animal ate
+                    if mv['Animal'] != "Manual":
+                        petbowl = {"time":mv['FOS'], "left":str(round(float(mv['SLF'])-float(mv['SLT']),2)),"right":str(round(float(mv['SRF'])-float(mv['SRT']),2))}
+                        happub(mv['Animal'].lower()+'_bowl/state',json.dumps(petbowl))
+
+                else:
+                    if PrintDebug:
+                        log.debug("Not closed action")
+                    bowl = {"state":mv['Animal']+" "+mv['FA'], "left":mv['SLT'],"right":mv['SRT']}
+
+                #Set Feeder Status
                 if PrintDebug:
-                    log.debug(lockmsg)
+                    log.debug("Feeder State: "+mac_address+" " +json.dumps(states[mac_address]))
+                hasepub(mac_address+'/status',json.dumps(states[mac_address]))
+
+# Cat Door
+def on_catflap_hub_message(client, obj, msg):
+    msgsplit = msg.payload.decode("utf-8").split()
+    if msgsplit[1] != "1000":
+        pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
+        mac_address = msg.topic.split("/")[-1]
+        log.info("Cat Flap    Raw: "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
+        log.info("Cat Flap Parsed: "+json.dumps(pethub))
+
+        #I have added this in as the feeder seems to need every message acked back to it with a 127, the counter sent to it and the message type.
+
+        #Ack all the messages apart from the acks and the 132's
+        for values in pethub['message']:
+            #Don't ack an existing ack
+            if values['OP'] not in ['Ack','Data132Battery']:
+                #Don't ack the last value in array as that is the message info
+                if not isinstance(values['OP'], list):
+                    #Not an ack so we need to ack back.
+                    ackmsg = phlp.generatemessage(mac_address, "sendack", values.data)
+                    hubpub(ackmsg['topic'],ackmsg['msg'])
+
+
+        if pethub['operation'] == 'Status':
+            for values in pethub['message'][-1:][0].values():
+                if "Battery" in values: #Update Battery State
+                    mv = next((fm for fm in pethub['message'] if fm['OP'] == "Battery"), None)
+                    hasepub(devid+"_battery/state",mv['Battery'])
+                if "PetMovement" in values: #Pet Movement 
+                    mv = next((fm for fm in pethub['message'] if fm['OP'] == "PetMovement"), None)
+                    happub(mv['Animal'].lower()+'/state',mv['Direction'])
+                if "LockState" in values: #Lock state
+                    mv = next((fm for fm in pethub['message'] if fm['OP'] == "LockState"), None)
+                    if mv['LockState'] in ["KeepIn","Locked"]:
+                        keepin = "ON"
+                    else:
+                        keepin = "OFF"
+                    if mv['LockState'] in ["KeepOut","Locked"]:
+                        keepout = "ON"
+                    else:
+                        keepout = "OFF"
+                    haswpub(devid+"_lock_keepin/state",keepin)
+                    haswpub(devid+"_lock_keepout/state",keepout)
+                    topicsplit = msg.topic.split("/")
+                    if PrintDebug:
+                        log.debug(str(topicsplit[-1]))
+                    lockmsg = phlp.updatedb('doors',topicsplit[-1],'lockingmode', mv['Lock'])
+                    if PrintDebug:
+                        log.debug(lockmsg)
 
 def on_catflap_lock_message(client, obj, msg):
-    pethub=phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
-    mac_address = msg.topic.split("/")[-1]
-    log.info("Cat Flap Lock: "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8"))
-    log.info("Cat Flap Lock Parse: "+json.dumps(pethub))
+    log.info("Cat Flap Lock: "+msg.topic+" "+msg.payload.decode("utf-8"))
     topicsplit = msg.topic.split("/")
     if PrintDebug:
         log.debug(topicsplit[3])
@@ -297,21 +331,21 @@ def on_catflap_lock_message(client, obj, msg):
     hubpub(lockmsg['topic'],lockmsg['msg'])
 
 def on_catflap_curfew_message(client, obj, msg):
-    log.info("Cat Flap Curfew "+msg.topic+" "+str(msg.qos)+" "+msg.payload.decode("utf-8")+" "+json.dumps(pethub))
+    log.info("Cat Flap Curfew "+msg.topic+" "+msg.payload.decode("utf-8")+" "+json.dumps(pethub))
     log.info("** not implemented")
 
-# Missed Message.. this shouldn't happen so log it.
+# Umatched Message
 def on_message(client, obj, msg):
     if "pethublocal/messages" in msg.topic:
         pethub = phlp.decodehubmqtt(msg.topic,msg.payload.decode("utf-8"))
-        log.info("**Non matched message** " +msg.topic+" "+str(msg.qos)+" "+str(msg.payload)+" "+json.dumps(pethub))
+        log.info("Hub Message T=" +msg.topic+" QoS="+str(msg.qos)+" Msg="+str(msg.payload)+" Parsed="+json.dumps(pethub))
     else:
-        log.info("**Non matched message** " +msg.topic+" "+str(msg.qos)+" "+str(msg.payload))
+        log.info("HA message T=" +msg.topic+" QoS="+str(msg.qos)+" Msg="+str(msg.payload))
     
 
-def on_publish(cl,data,res):
-    #log.info("data published ", res)
-    pass
+#def on_publish(client,data,res):
+#    log.info("data published msg ", res)
+#   pass
 
 #Publish sensor topic
 def hasepub(topic,message):
@@ -334,7 +368,7 @@ def hubpub(topic,message):
 log.info("Starting Pet Hub")
 mc = mqtt.Client()
 mc.on_message = on_message
-mc.on_publish = on_publish
+#mc.on_publish = on_publish
 if os.environ.get('HAMQTTUSERNAME') is not None and os.environ.get('HAMQTTPASSWORD') is not None:
     if PrintDebug:
         log.debug("HAMQTTUSERNAME and HAMQTTPASSWORD set so setting MQTT broker password")
@@ -397,21 +431,22 @@ for device in pethubinit.devices:
         #Set Time
         #log.info("Setting device time for "+device.name)
         
-        #Set time on device
-        petdoortime = phlp.generatemessage(mac, "settime", "")
-        if "TBC" not in petdoortime:
-            hubpub(petdoortime.topic,petdoortime.msg)
-        else:
-            log.info("settime not implemented")
+        states.update({mac:{'State':LockState(device.lockingmode).name}})
 
-        states.update({mac:{'State':device.lockingmode}})
+        #Set time on device
+        genmsg = phlp.generatemessage(mac, "settime", "") # Message 0c for Battery
+        if PrintDebug:
+            log.debug("Gen settime Message: " + json.dumps(genmsg))
+        hubpub(genmsg.topic,genmsg.msg)
 
         if pid == 3: #Pet Door (3)
             log.info("Loading Pet Door: "+device.name)
             #Dump current state 
             if StateOnStartup:
                 log.info("Dump current state for "+device.name)
-                petdoortime = phlp.generatemessage(mac, "dumpstate", "")
+                genmsg = phlp.generatemessage(mac, "dumpstate", "")
+                hubpub(genmsg.topic,genmsg.msg)
+
             if PrintDebug:
                 log.debug("Pet Door Payload: "+str(device))
             #Adding callbacks to MQTT to call separate functions when messages arrive for pet dor
@@ -430,24 +465,39 @@ for device in pethubinit.devices:
             mc.message_callback_add(d_swi_t+devid+"_lock_keepout/set", on_catflap_lock_message)
             mc.message_callback_add(d_swi_t+devid+"_curfew/set", on_catflap_curfew_message)
 
+            #Get Battery state
+            genmsg = phlp.generatemessage(mac, "get", "battery") # Message 0c for Battery
+            if PrintDebug:
+                log.debug("Gen Cat Flap Message: " + json.dumps(genmsg))
+            hubpub(genmsg.topic,genmsg.msg)
+
         #Curfew
         if device.curfewenabled != "None" and device.lock_time != "None" and device.unlock_time != "None":
-            #Curfew State Switch
-            configmessage={"name": dev+" Curfew", "icon": "mdi:door", "unique_id": "device_"+devid+"_curfew", "command_topic": d_swi_t+devid+"_curfew/set", "state_topic": d_swi_t+devid+"_curfew/status", "json_attributes_topic": d_swi_t+devid+"_curfew/status", "val_tpl": "{{value_json['State']}}" }
-            haswpub(devid+'_curfew/config',json.dumps(configmessage))
+            curfewstate = {'State':CurfewOnOff(device.curfewenabled).name, 'Lock time':str(device.lock_time),'Unlock time':str(device.unlock_time)}
+            states[mac].curfew=curfewstate
+
+            ##Curfew State Switch
+            #configmessage={"name": dev+" Curfew", "icon": "mdi:door", "unique_id": "device_"+devid+"_curfew", "command_topic": d_swi_t+devid+"_curfew/set", "state_topic": d_swi_t+devid+"_curfew/status", "json_attributes_topic": d_swi_t+devid+"_curfew/status", "val_tpl": "{{value_json['State']}}" }
+            #if PrintDebug:
+            #    log.debug("Curfew Config: " + json.dumps(configmessage))
+            #haswpub(devid+'_curfew/config',json.dumps(configmessage))
 
             #Curfew State Times
-            curfewstate = {'State':OnOff(device.curfewenabled).name, 'Lock time':str(device.lock_time),'Unlock time':str(device.unlock_time)}
-            states[mac].curfew=curfewstate
-            haswpub(devid+'_curfew/status',json.dumps(curfewstate))
+            #curfewstate = {'State':CurfewOnOff(device.curfewenabled).name, 'Lock time':str(device.lock_time),'Unlock time':str(device.unlock_time)}
+            #states[mac].curfew=curfewstate
+            ##if PrintDebug:
+            #    log.debug("Curfew State: " + json.dumps(states[mac].curfew))
+            #haswpub(devid+'_curfew/status',json.dumps(states[mac].curfew))
 
         #Lock state as a switch
         if device.lockingmode != "None":
-            lockstate = ["lock_keepin","lock_keepout"]
+            lockstate = ["lock_keepin","lock_keepout","curfew"]
             for key in lockstate:
                 #log.info(key)
                 configmessage={"name": dev+" "+key.replace('_', ' '), "icon": "mdi:door", "unique_id": "device_"+devid+"_"+key, "command_topic": d_swi_t+devid+"_"+key+"/set", "state_topic": d_swi_t+devid+"_"+key+"/state" }
                 haswpub(devid+"_"+key+'/config',json.dumps(configmessage))
+                if PrintDebug:
+                    log.info("Add Lock switch: "+ devid+"_"+key+'/config' + " " +json.dumps(configmessage))
             if device.lockingmode in [1,3]:
                 keepin = "ON"
             else:
@@ -456,8 +506,13 @@ for device in pethubinit.devices:
                 keepout = "ON"
             else:
                 keepout = "OFF"
+            if device.lockingmode in [4]:
+                curfew = "ON"
+            else:
+                curfew = "OFF"
             haswpub(devid+"_lock_keepin/state",keepin)
             haswpub(devid+"_lock_keepout/state",keepout)
+            haswpub(devid+"_curfew/state",curfew)
 
         #State Config
         configmessage={"name": dev, "icon": "mdi:door", "unique_id": "device_"+devid, "stat_t": d_sen_t+devid+"/status", "json_attr_t": d_sen_t+devid+"/status", "val_tpl": "{{value_json['State']}}" }
@@ -477,10 +532,15 @@ for device in pethubinit.devices:
 
         #Init feeder
         #Get Battery state
-        genmsg = phlp.generatemessage(mac, "dumpstate", "0c 00") # Message 0c for Battery
+        genmsg = phlp.generatemessage(mac, "get", "battery") # Message 0c for Battery
+        if PrintDebug:
+            log.debug("Gen Battery Message: " + json.dumps(genmsg))
         hubpub(genmsg.topic,genmsg.msg)
 
-        genmsg = phlp.generatemessage(mac, "settime", "") # Message 0c for Battery
+        #Set the time
+        genmsg = phlp.generatemessage(mac, "settime", "")
+        if PrintDebug:
+            log.debug("Gen settime Message: " + json.dumps(genmsg))
         hubpub(genmsg.topic,genmsg.msg)
 
         #Configured bowls
@@ -491,14 +551,14 @@ for device in pethubinit.devices:
             #Build config for HA MQTT discovery
             bowl = {"left":["Current Left Weight","g"],"right":["Current Right Weight","g"]}
             #Set State
-            bowlstate = {"left":"0","right":"0"}
+            bowlstate = {"left":str(device.bowl1),"right":str(device.bowl2)}
         elif device.bowltype == 1: #One bowl
             #Build config for HA MQTT discovery
             states[mac].update({"Target": str(device.bowltarget1)})
             #Build config for HA MQTT discovery
             bowl = {"weight":["Current Weight","g"]}
             #Set State
-            bowlstate = {"weight":"0"}
+            bowlstate = {"weight":str(device.bowl1)}
         else:
             log.info("Unknown Bowl Configuration")
 
@@ -530,11 +590,16 @@ for device in pethubinit.devices:
         mc.message_callback_add(hub_topic+'/'+mac, on_feeder_hub_message)
 
         #Get Battery state
-#        genmsg = phlp.generatemessage(mac, "dumpstate", "0c 00") # Message 0c for Battery
-#        hubpub(genmsg.topic,genmsg.msg)
+        genmsg = phlp.generatemessage(mac, "get", "battery") # Message 0c for Battery
+        if PrintDebug:
+            log.debug("Gen Battery Message: " + json.dumps(genmsg))
+        hubpub(genmsg.topic,genmsg.msg)
 
-#        genmsg = phlp.generatemessage(mac, "settime", "") # Message 0c for Battery
-#        hubpub(genmsg.topic,genmsg.msg)
+        #Set the time
+        genmsg = phlp.generatemessage(mac, "settime", "") # Message 0c for Battery
+        if PrintDebug:
+            log.debug("Gen settime Message: " + json.dumps(genmsg))
+        hubpub(genmsg.topic,genmsg.msg)
 
         #Configured water bowl
         states.update({mac:{'Weight':device.bowl1,'Tare':device.bowltarget1}})
