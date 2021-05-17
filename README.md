@@ -45,7 +45,8 @@ If you have a H010 revision hub or have already upgraded the firmware then you n
 
 https://github.com/plambrechtsen/pethublocal/tree/main/docs/Hub
 
-Then if you have it working on 576000/8/N/1 you should see the standard boot message when the hub normally. You should save the console log output to a file, as the firmware update generates about 20k lines, so if you are using Windows and Putty change the scroll back to 200000 or some large number.
+Then if you have it working on 57600/8/N/1 you should see the standard boot message when the hub normally. You should save the console log output to a file, as the firmware update generates about 20k lines, so if you are using Windows and Putty change the scroll back to 200000 or some large number.
+Make sure to set your TTY to "raw" mode, otherwise the terminal driver might interfere by interpreting control characters. On Linux this can be achieved by running `stty -F /dev/ttyUSB0 raw 57600`.
 Then press and hold the reset button underneath, watch the firmware be re-applied and then there is this python script: [fwlogtopw.py](docker/source/fwlogtopw.py)
 
 Which takes the output of the firmware update and prints the serial number.
