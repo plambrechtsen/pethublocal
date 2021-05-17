@@ -16,7 +16,7 @@ Working on adding support for the following devices if others in the community c
 - Cat Flap Connect
 - Felaqua Connect
 
-## Docker
+## [Docker](tree/main/docker) 
 
 This is the main code you are looking for, it is a docker compose stack that should be self contained and able to integrate directly into home assistant.
 I have built it on a Debian Buster image and have run it successfully on a x64 and ODroid C2 which is similar to a Raspberry Pi 4.
