@@ -39,7 +39,7 @@ Print126Frame = False    #Debug the 2A / 126 feeder frame
 Print127Frame = False    #Debug the 2D / 127 feeder frame
 Print132Frame = False    #Debug the 3C / 132 hub and door frame
 PrintHubFrame = False    #Debug the Hub frame
-PrintFeederFrame = True  #Debug the Hub frame
+PrintFeederFrame = False #Debug the Hub frame
 Print2Frame = False      #Debug the 2 frame
 PrintDebug = False       #Debug the 2 frame
 
@@ -235,9 +235,9 @@ def parseframe(device, value):
 
 #    print("Timestamp:",tohex(value[4:8]))
 #    print("Timestampts:",frameresponse.framets)
-    #The message type and counter are needed for acking back
-    frameresponse.data=Box({'msg':hb(value[0]),'counter':hb(value[2])})
-#    frameresponse.msgdata=hb(value[0])+" "+hb(value[2])
+
+    #The counter is two bytes and is needed for acking back
+    frameresponse.data=Box({'msg':hb(value[0]),'counter':b2iu(value[2:4])})
 
     if value[0] in [0x07, 0x0b, 0x10, 0x16]: #Unknown messages
         op=hb(value[0])
@@ -336,6 +336,9 @@ def parseframe(device, value):
         else:
             frameresponse.OP="Unknown"
             frameresponse.MSG=tohex(value)
+    elif value[0] == 0x12: #Curfew.. TBC
+        frameresponse.OP="Curfew"
+        frameresponse.MSG=tohex(value)
     elif value[0] == 0x13: #Pet Movement through cat door
         tag = hextochip(tohex(value[18:25]))
         curs.execute('select name from pets where tag=(?)', ([tag]))
@@ -478,8 +481,6 @@ def parse132frame(mac_address,offset,value):
     response = []
     frameresponse = Box();
     message=bytearray.fromhex(value)
-    if PrintFeederFrame:
-        print("Data 132 Frame: MAC Address: " + mac_address + " offset " + str(offset) + " -value- " + str(value))
     if offset == 33: #Battery and Door Time
         operation="Data132Battery"
         frameresponse.OP=operation
@@ -708,7 +709,7 @@ def decodehubmqtt(topic,message):
     elif msgsplit[2] == "132": #Feeder 132 Status
         #Status message has a counter at offset 4 we can ignore:
         if PrintFeederFrame:
-            print("Feeder 132 Message : "+message)
+            print("NonHub/PetDoor 132 Message : "+message)
         msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
         #print("Message :", "".join(msgsplit[5:]))
         response.message = parse132frame(mac_address, int(msgsplit[4]),"".join(msgsplit[5:]))
@@ -983,14 +984,15 @@ def generatemessage(mac_address,operation,state):
             return Box({"error":"Unknown message"})
 
     elif EntityType(int(device.product_id)).name == "CATFLAP": #Cat Flap
-
         ackdatatype = Box({
-            "boot9"     : "09", #Boot message 09
-            "boot10"    : "10", #Boot message 10
-            "tags"      : "11", #Tag provisioning
-            "boot17"    : "17", #Boot message 17
-            "unknown0b" : "0b", #Unknown 0b message
-            "battery"   : "0c"  #Battery state change
+            "boot9"       : "09", #Boot message 09
+            "boot10"      : "10", #Boot message 10
+            "tags"        : "11", #Tag provisioning
+            "curfew"      : "12", #Curfew
+            "petmovement" : "13", #Pet movement in / out cat flap
+            "boot17"      : "17", #Boot message 17
+            "unknown0b"   : "0b", #Unknown 0b message
+            "battery"     : "0c"  #Battery state change
         })
         getdatatype = Box({
             "boot9"     : "09 00 ff", #Boot message 09
