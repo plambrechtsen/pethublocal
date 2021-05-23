@@ -20,7 +20,7 @@
    Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 """
 
-import binascii, struct, time, sys, sqlite3, json, glob, logging
+import binascii, struct, time, sys, sqlite3, json, glob, logging, pathlib
 
 from datetime import datetime
 from operator import xor
@@ -31,8 +31,8 @@ from pethubconst import *
 from box import Box
 
 #Debugging mesages
-PrintFrame = True       #Print the before and after xor frame
-LogFrame = True         #Log the frames to a file
+PrintFrame = False       #Print the before and after xor frame
+LogFrame = False         #Log the frames to a file
 LogAirFrame = False      #Log the frame sent over the air as a hub mqtt packet to a file
 PrintFrameDbg = False    #Print the frame headers
 Print126Frame = False    #Debug the 2A / 126 feeder frame
@@ -43,6 +43,19 @@ PrintFeederFrame = False #Debug the Hub frame
 Print2Frame = False      #Debug the 2 frame
 PrintDebug = False       #Debug the 2 frame
 
+'''
+#Setup Logging framework to log to console without timestamps and log to file with timestamps
+log = logging.getLogger('')
+log.setLevel(logging.INFO)
+logformat = logging.Formatter("%(asctime)s - [%(levelname)-5.5s] - %(message)s")
+ch = logging.StreamHandler(sys.stdout)
+log.addHandler(ch)
+pathlib.Path("log").mkdir(exist_ok=True)
+fh = logging.FileHandler('log/pethubpacket-{:%Y-%m-%d}.log'.format(datetime.now()))
+fh.setFormatter(logformat)
+log.addHandler(fh)
+'''
+
 #Import xor key from pethubpacket.xorkey and make sure it is sane.
 for file in glob.glob("pethubpacket.xorkey"):
     xorfile=Path(file).read_text()
@@ -52,21 +65,15 @@ for file in glob.glob("pethubpacket.xorkey"):
         sys.exit("Corrupted pethubpacket.xorkey file, make sure the length is an even set of bytes")
 
 #Load PetHubLocal database
-def dict_factory(cursor, row): #Return results as a dict key value pair
+def box_factory(cursor, row): #Return results as a Box/dict key value pair
     d = {}
     for idx, col in enumerate(cursor.description):
         d[col[0]] = row[idx]
     return Box(d)
 
-#for sqlitefile in glob.glob("pethublocal.db"):
-#    conn=sqlite3.connect(sqlitefile)
 conn=sqlite3.connect("pethublocal.db")
-conn.row_factory = dict_factory
+conn.row_factory = box_factory
 curs=conn.cursor()
-#conn.row_factory = sqlite3.Row
-
-#Create hex timestamp
-ts = hex(round(datetime.utcnow().timestamp()))[2:]
 
 def sqlcmd(sql_cmd):
     try:
@@ -74,6 +81,33 @@ def sqlcmd(sql_cmd):
         conn.commit()
     except Error as e:
         print(e)
+
+def bit2int(number,start,bitlen,fill):
+    return str(int(number[start : start+bitlen],2)).zfill(fill)
+
+def int2bit(number,fill):
+    return str(bin(int(number))[2:]).zfill(fill)
+
+def hextimestampfromnow(): #Create UTC hex timestamp, used for the hub timestamp values for every event
+    return hex(round(datetime.utcnow().timestamp()))[2:]
+
+def devicetimestamptostring(hexts):
+#    print("Incoming ts",tohex(hexts))
+    intts = int.from_bytes(hexts,byteorder='little')
+    binstring = str(bin(intts)[2:]).zfill(32)
+    ts="{}-{}-{} {}:{}:{}".format("20"+bit2int(binstring,0,6,2),bit2int(binstring,6,4,2),bit2int(binstring,10,5,2),bit2int(binstring,15,5,2),bit2int(binstring,20,6,2),bit2int(binstring,26,6,2))
+#    print("parsed ts",ts)
+    return ts
+    #return str(datetime(bit2int(binstring,0,6,2)+2000,bit2int(binstring,6,4,2),bit2int(binstring,10,5,2),bit2int(binstring,15,5,2),bit2int(binstring,20,6,2),bit2int(binstring,26,6,2)))
+
+def devicetimestampfromnow():
+    now = datetime.utcnow() # Current timestamp in UTC
+    bintime = int2bit(now.strftime("%y"),6)+int2bit(now.month,4)+int2bit(now.day,5)+int2bit(now.hour,5)+int2bit(now.minute,6)+int2bit(now.second,6)
+    return int(bintime,2).to_bytes(4,'little').hex() #Return as a hex string
+
+def localtimestampfromnow():
+    dtnow = datetime.now()
+    return dtnow.strftime("%Y-%m-%d %H:%M:%S")
 
 def chiptohex(chip):
     chiphex = ""
@@ -123,33 +157,9 @@ def doorhextochip(chiphex):
         chip=str(int(chipbin[:10],2)) + "." + str(int(chipbin[10:],2)).zfill(12)
     return chip
 
-def bit2int(number,start,bitlen,fill):
-     #return int(number[start : start+bitlen],2) #Don't really want to return the value as an int, rather a zero padded string
-     return str(int(number[start : start+bitlen],2)).zfill(fill)
-
-def int2bit(number,fill):
-     return str(bin(int(number))[2:]).zfill(fill)
 
 def splitbyte(bytestring):
     return " ".join(bytestring[i:i+2] for i in range(0, len(bytestring), 2))
-
-def devicetimestamptostring(hexts):
-#    print("Incoming ts",tohex(hexts))
-    intts = int.from_bytes(hexts,byteorder='little')
-    binstring = str(bin(intts)[2:]).zfill(32)
-    ts="{}-{}-{} {}:{}:{}".format("20"+bit2int(binstring,0,6,2),bit2int(binstring,6,4,2),bit2int(binstring,10,5,2),bit2int(binstring,15,5,2),bit2int(binstring,20,6,2),bit2int(binstring,26,6,2))
-#    print("parsed ts",ts)
-    return ts
-    #return str(datetime(bit2int(binstring,0,6,2)+2000,bit2int(binstring,6,4,2),bit2int(binstring,10,5,2),bit2int(binstring,15,5,2),bit2int(binstring,20,6,2),bit2int(binstring,26,6,2)))
-
-def devicetimestampfromnow():
-    now = datetime.utcnow() # Current timestamp in UTC
-    bintime = int2bit(now.strftime("%y"),6)+int2bit(now.month,4)+int2bit(now.day,5)+int2bit(now.hour,5)+int2bit(now.minute,6)+int2bit(now.second,6)
-    return int(bintime,2).to_bytes(4,'little').hex() #Return as a hex string
-
-def localtimestampfromnow():
-    dtnow = datetime.now()
-    return dtnow.strftime("%Y-%m-%d %H:%M:%S")
 
 def bltoi(value): #Bytes little to integer
     return int.from_bytes(value,byteorder='little')
@@ -390,7 +400,9 @@ def parseframe(device, value):
                     frameresponse.Animal=petval.name
                     #Update weight values in database for known pet when the feeder closes
                     if value[15] == 1:
-                        updatedbtag('petstate',tag,device,'state', "["+scaleleftdiff+","+scalerightdiff+"]")
+                        scalediff='['+scaleleftdiff+','+scalerightdiff+']'
+                        print("Scale Diff Update: ",scalediff)
+                        updatedbtag('petstate',tag,device,'state', scalediff)
                         updatedbtag('petstate',tag,device,'timestamp', localtimestampfromnow())
                 else:
                     frameresponse.Animal=tag
@@ -532,14 +544,14 @@ def parsedoorframe(mac_address,offset,value):
         op="LockState"
         frameresponse.OP=op
         operation.append(op)
-        frameresponse.LockState=LockState(int(message[1])).name
+        frameresponse.LockState=PetDoorLockState(int(message[1])).name
         frameresponse.LockStateNumber=message[1]
         sqlcmd('UPDATE doors SET lockingmode='+ str(message[1]) +' WHERE mac_address = "' + mac_address + '"')
-    elif offset == 40: #Keep pets out allow incoming state
+    elif offset == 40: #Keep pets out to allow pets to come in state
         op="LockedOutState"
         frameresponse.OP=op
         operation.append(op)
-        frameresponse.LockedOut=LockedOutState(int(message[1])).name
+        frameresponse.LockedOut=PetDoorLockedOutState(int(message[1])).name
     elif offset == 59: #Provisioned Chip Count
         op="PrivChipCount"
         frameresponse.OP=op
@@ -584,8 +596,8 @@ def parsedoorframe(mac_address,offset,value):
                     petstate = "1" #Inside
                 else:
                     petstate = "0" #Otherwise Outside
-                updatedbtag('petstate',tagval.tag,mac_address,'state', petstate)  # Update state as inside or outside
-                updatedbtag('petstate',tag,device,'timestamp', localtimestampfromnow()) #Update timestamp
+                updatedbtag('petstate',tagval.tag,mac_address,'state', petstate )  # Update state as inside or outside
+                updatedbtag('petstate',tagval.tag,mac_address,'timestamp', localtimestampfromnow()) #Update timestamp
             else:
                 petname="Unknown"
         else:
@@ -613,7 +625,7 @@ def parsedoorframe(mac_address,offset,value):
 def inithubmqtt():
     response = Box();
     #Devices
-    curs.execute('select name,product_id,devices.mac_address,serial_number,version,state,battery,led_mode,pairing_mode,curfewenabled,lock_time,unlock_time,lockingmode,bowl1,bowl2,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
+    curs.execute('select name,product_id,devices.mac_address,serial_number,uptime,version,state,battery,led_mode,pairing_mode,curfewenabled,lock_time,unlock_time,lockingmode,bowl1,bowl2,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
     devices = curs.fetchall()
     if devices:
         response.devices = devices
@@ -638,7 +650,11 @@ def decodehubmqtt(topic,message):
             response.device = str(devicename.name)
             response.mac_address = str(devicename.mac_address)
             mac_address = devicename.mac_address
-        timestampstr = str(datetime.utcfromtimestamp(int(ts,16)))
+        try:
+            int(msgsplit[0], 16)
+            timestampstr = str(datetime.utcfromtimestamp(int(msgsplit[0],16)))
+        except ValueError:
+            timestampstr = str(datetime.utcnow().replace(microsecond=0))
     else:
         curs.execute('select name,mac_address,product_id from devices where mac_address=(?)', ([mac_address]))
         devicename = curs.fetchone()
@@ -647,7 +663,7 @@ def decodehubmqtt(topic,message):
             response.mac_address = mac_address
         else:
             response.device = str(mac_address)
-            response.mac_address = str(devicename.mac_address)
+            response.mac_address = mac_address
         timestampstr = str(datetime.utcfromtimestamp(int(msgsplit[0],16)))
     response.message = message
     response.timestamp=timestampstr
@@ -800,7 +816,7 @@ def decodemiwi(timestamp,source,destination,framestr):
     return "Received frame at: " + timestamp + " from: " + sourcemac + " to: " + destinationmac + " " + logmsg
 
 def buildmqttsendmessage(value):
-  return ts + " 1000 " + value
+  return hextimestampfromnow() + " 1000 " + value
 
 #Generate message
 def generatemessage(mac_address,operation,state):
@@ -819,8 +835,9 @@ def generatemessage(mac_address,operation,state):
             "flashearsoff" : { "msg" : "2 18 1 80",  "desc" : "Flash ears 3 times and return to ears off" },     #Flash the ears 3 times, return to off state
             "flashearson"  : { "msg" : "2 18 1 81",  "desc" : "Flash ears 3 times and return to ears on" },      #Flash the ears 3 times, return to on state
             "flashearsdim" : { "msg" : "2 18 1 84",  "desc" : "Flash ears 3 times and return to ears dimmed" },  #Flash the ears 3 times, return to dimmed state
-            "adoptenable"  : { "msg" : "2 15 1 02",  "desc" : "Enable adoption mode to adopt devices." },        #Enable adoption mode to adopt devices.
+            "adoptenable"  : { "msg" : "2 15 1 02",  "desc" : "Enable adoption mode to adopt devices." },        #Enable adoption mode to adopt new devices
             "adoptdisable" : { "msg" : "2 15 1 00",  "desc" : "Disable adoption mode" },                         #Disable adoption mode
+            "adoptbutton"  : { "msg" : "2 15 1 82",  "desc" : "Enable adoption using reset button." },           #Enable adoption mode as if you pressed the button under the hub
             "removedev0"   : { "msg" : "2 22 1 00",  "desc" : "Remove Provisioned device 0" },                   #Remove Provisioned device 0
             "removedev1"   : { "msg" : "2 22 1 01",  "desc" : "Remove Provisioned device 1" },                   #Remove Provisioned device 1
             "removedev2"   : { "msg" : "2 22 1 02",  "desc" : "Remove Provisioned device 2" },                   #Remove Provisioned device 2
@@ -830,7 +847,7 @@ def generatemessage(mac_address,operation,state):
         if operation == "operations":      #Dump all memory registers from 0 to 205
             return operations
         elif operation in operations:
-            print("Operation to do: " + operation)
+            #print("Operation to do: " + operation)
             return Box({"topic":"pethublocal/messages", "msg":buildmqttsendmessage(operations[operation].msg)})
         else:
             return Box({"error":"Unknown message"})
@@ -978,7 +995,7 @@ def generatemessage(mac_address,operation,state):
                     message = message.replace("CC CC CC CC CC CC CC", splitbyte(chiphex))
                     message = message.replace("SS", chipstate[statesplit[0]])
 
-            print("Operation to do: " + operation + " State " + state + " Message " + message)
+            #print("Operation to do: " + operation + " State " + state + " Message " + message)
             return Box({"topic":"pethublocal/messages/"+mac_address, "msg":buildmqttsendmessage(message)})
         else:
             return Box({"error":"Unknown message"})
@@ -1060,6 +1077,80 @@ def generatemessage(mac_address,operation,state):
         message = message.replace('ZZ ZZ', splitbyte(devcount.send.to_bytes(2,'little').hex())) #Replace device send counter in the record with two byte counter
         message = message.replace('TT TT TT TT', hubts) #Replace timestamp in the record
         return Box({"topic":"pethublocal/messages/"+mac_address, "msg":buildmqttsendmessage(message)})
+
+    elif EntityType(int(device.product_id)).name == "FELAQUA": #Felaqua
+        ackdatatype = Box({
+            "boot9"     : "09", #Boot message 09
+            "unknown0b" : "0b", #Unknown 0b message
+            "battery"   : "0c", #Battery state change
+            "boot10"    : "10", #Boot message 10
+            "tags"      : "11", #Tag provisioning
+            "status16"  : "16", #Status 16 message
+            "boot17"    : "17", #Boot message 17
+            "drinking"  : "1b"  #Drinking message
+        })
+        getdatatype = Box({
+            "boot9"     : "09 00 ff", #Boot message 09
+            "boot10"    : "10 00",    #Boot message 10
+            "tags"      : "11 00 ff", #Tag provisioned
+            "boot17"    : "17 00 00", #Boot message  17
+            "unknown0b" : "0b 00",    #Unknown 0b
+            "battery"   : "0c 00"     #Battery state
+        })
+        zeroscale = Box({
+            "left"   : "01", #Zero left scale
+            "right"  : "02", #Zero right scale
+            "both"   : "03"  #Zero both scale
+        })
+        chipstate = Box({
+            "disable"  : "00", #Disable chip
+            "enable"   : "01"  #Enable / Provision chip
+        })
+        #All messages detected sending to the felaqua, if the fields have validation then they have a validate date referencing the above dictionary key value pairs
+        operations = Box({
+            "ack"             : { "msg" : "127 00 00 ZZ ZZ TT TT TT TT SS 00 00",                             "desc" : "Send acknowledge to data type", "validate": ackdatatype },  #Send acknowledge to data type 
+            "get"             : { "msg" : "127 01 00 ZZ ZZ TT TT TT TT SS",                                   "desc" : "Get current state of data type", "validate": getdatatype }, #Get data type state
+            "settime"         : { "msg" : "127 07 00 ZZ ZZ TT TT TT TT 00 00 00 00 06",                       "desc" : "Set the device time" },                                     #Set device time, seems like the last byte = 04 sets time when going forward, 05 sets time, 06 sets time on boot
+            "chipprovision"   : { "msg" : "127 11 00 ZZ ZZ TT TT TT TT CC CC CC CC CC CC CC 02 00 SS",        "desc" : "Provision/enable or disable chip" }                         #Provision or enable or disable chip
+        })
+        if operation in operations:
+            message = operations[operation].msg
+            #Update standard values of the counter, and the timestamp
+            hubts = splitbyte(devicetimestampfromnow())
+            devcount = devicecounter(mac_address,"-1","-2") #Iterate the send counter for the device
+            message = message.replace('ZZ ZZ', splitbyte(devcount.send.to_bytes(2,'little').hex())) #Replace device send counter in the record
+            message = message.replace('TT TT TT TT', hubts) #Replace timestamp in the record
+            #This operation has values we should validate
+            if "validate" in operations[operation]:
+                #print(operations[operation].validate)
+                if state in operations[operation].validate: #Has string value to map
+                    message = message.replace("SS", operations[operation].validate[state])
+                elif hb(int(state,16)) in operations[operation].validate.values(): #Has value that exists in validation dictionary
+                    message = message.replace("SS", hb(int(state,16)))
+                else:
+                    return Box({"error":"Invalid value passed, check validation", "validate": operations[operation].validate })
+            #Message has a weight value we need to convert from the incoming state
+            if "WW WW WW WW" in message:
+                if state.isdigit():
+                    weight=splitbyte((int(state)*100).to_bytes(4,'little').hex())
+                    #print("Weight: "+str(state) + " AsHex " + weight)
+                    message = message.replace("WW WW WW WW", weight)
+                else:
+                    return Box({"error":"No valid positive integer weight passed"})
+
+            #Chip Provisioning
+            if "CC CC CC CC CC CC CC" in message:
+                statesplit = state.split('-')
+                if statesplit[0] in chipstate:
+                    chiphex = chiptohex(statesplit[1])
+                    print(chiphex)
+                    message = message.replace("CC CC CC CC CC CC CC", splitbyte(chiphex))
+                    message = message.replace("SS", chipstate[statesplit[0]])
+
+            #print("Operation to do: " + operation + " State " + state + " Message " + message)
+            return Box({"topic":"pethublocal/messages/"+mac_address, "msg":buildmqttsendmessage(message)})
+        else:
+            return Box({"error":"Unknown message"})
     else:
         print("Unknown type")
 
@@ -1093,17 +1184,15 @@ def devicecounter(mac_address,send,retrieve):
     conn.commit()
     return devc
 
-def updatedb(tab,dev,col,val):
+def updatedb(tab,mac_address,col,val):
     cur = conn.cursor()
-    upd = 'UPDATE '+ tab + ' SET ' + col + ' = "' + val + '" WHERE mac_address = "' + dev + '"'
-    #print(upd)
+    upd = 'UPDATE '+ tab + ' SET ' + col + ' = "' + val + '" WHERE mac_address = "' + mac_address + '"'
     cur.execute(upd)
-    #cur.execute('UPDATE doors SET ? = ? WHERE mac_address = ?', (col,val,dev))
     conn.commit()
 
 #Update the petstate database when 
-def updatedbtag(tab,tag,dev,col,val):
+def updatedbtag(tab,tag,mac_address,col,val):
     cur = conn.cursor()
-    upd = 'UPDATE '+ tab + ' SET ' + col + ' = "' + val + '" WHERE tag = "' + tag + '" and mac_address = "' + dev + '"'
+    upd = 'UPDATE '+ tab + ' SET ' + col + ' = "' + val + '" WHERE tag = "' + tag + '" and mac_address = "' + mac_address + '"'
     cur.execute(upd)
     conn.commit()

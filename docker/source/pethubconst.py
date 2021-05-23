@@ -7,7 +7,7 @@
 
     Copyright (c) 2021, Peter Lambrechtsen (peter@crypt.nz)
 
-    Used surepy constants 
+    Used and abused surepy constants from Ben's amazing work: https://github.com/benleb/surepy
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -34,6 +34,17 @@ class SureEnum(IntEnum):
     @classmethod
     def has_value(self, value):
         return value in self._value2member_map_ 
+
+    @classmethod
+    def _missing_(self, value):
+        return value
+
+    @classmethod #Handle weird values, as it really shouldn't crash.
+    def _missing_(self, value):
+        new_member = int.__new__(self, value)
+        new_member._name_ = str(value) 
+        new_member._value_ = value
+        return self._value2member_map_.setdefault(value, new_member)
 
 class EntityType(SureEnum):
     """Sure Entity Types."""
@@ -64,11 +75,11 @@ class FeederCloseDelay(SureEnum): # Feeder Close Delay speed
     Slow        = 20000 # Slow delay
 
 class FeederBowls(SureEnum): # Feeder Close Delay speed
-    Single        = 1   # RSinFast close delay
-    Double        = 2   # Normal delay
-    Felaqua       = 4   # Felaquay
+    Single        = 1   # Single Bowl
+    Double        = 2   # Double Bowl
+    Felaqua       = 4   # Felaqua
 
-class LockState(SureEnum): # Lock State IDs.
+class PetDoorLockState(SureEnum): # Lock State IDs.
     Unlocked        = 0
     KeepIn          = 1
     KeepOut         = 2
@@ -77,6 +88,10 @@ class LockState(SureEnum): # Lock State IDs.
     CURFEW_LOCKED   = -1
     CURFEW_UNLOCKED = -2
     CURFEW_UNKNOWN  = -3
+
+class PetDoorLockedOutState(SureEnum): # Locked Out State for preventing animals coming in
+    Normal          = 2  # Allow pets in
+    Locked_Out      = 3  # Keep pets out
 
 class CatFlapLockState(SureEnum): # Lock State IDs.
     Status0         = 0
@@ -94,11 +109,6 @@ class CatLockState(SureEnum): # Lock State IDs.
     KeepIn          = 3
     Status4         = 4
 
-
-class LockedOutState(SureEnum): # Locked Out State for preventing animals coming in
-    NORMAL          = 2  # Allow pets in
-    LOCKED_IN       = 3  # Keep pets out
-
 class PetDoorDirection(SureEnum): # Pet Movement on Pet Door coming in or out or looked in or unknown animal left
     Outside_LookedIn    = 0x40 #This happens if the pet comes up to the door from outside, puts head in and unlocks the door but doesn't come in.
     Inside              = 0x61 #Normal ingress
@@ -107,9 +117,10 @@ class PetDoorDirection(SureEnum): # Pet Movement on Pet Door coming in or out or
     Outside_UnknownPet  = 0xd3 #This along with pet 621 is when the pet leaves too quickly for the pet door to read it leaving
 
 class CurfewState(SureEnum): # Curfew State
-    OFF             = 1
-    ON              = 2
-    STATUS          = 3
+    Disabled        = 0
+    Off             = 1
+    On              = 2
+    Status          = 3
 
 class HubLeds(SureEnum):     # Sure Petcare API LED State offset 0x18
     Off             = 0      #Ears Off
@@ -165,7 +176,3 @@ class OnOff(SureEnum): # Enabled disabled
     Off              = 0
     On               = 1
     Status           = 2
-
-class CurfewOnOff(SureEnum): # Enabled disabled
-    Off              = 1
-    On               = 2
