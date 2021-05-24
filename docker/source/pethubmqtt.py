@@ -270,8 +270,12 @@ def on_catflap_hub_message(client, obj, msg):
                 #Don't ack the last value in array as that is the message info
                 if not isinstance(values['OP'], list):
                     #Not an ack so we need to ack back.
-                    ackmsg = phlp.generatemessage(mac_address, "sendack", values.data)
-                    hubpub(ackmsg['topic'],ackmsg['msg'])
+                    log.info("Feeder: Ack Message: "+values.data.msg)
+                    ackmsg = phlp.generatemessage(mac_address, "ack", values.data.msg)
+                    if ackmsg['topic'] and ackmsg['msg']:
+                        hubpub(ackmsg['topic'],ackmsg['msg'])
+                    else:
+                        log.info("Feeder: Ack Failed: "+json.dumps(ackmsg))
 
         if pethub['operation'] == 'Status':
             for values in pethub['message'][-1:][0].values():

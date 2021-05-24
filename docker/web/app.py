@@ -104,7 +104,7 @@ def credentials():
         file = open(filename, "w")
         file.write(newpayload)
         file.close()
-    response = make_response(send_file(filename,mimetype='application/x-www-form-urlencoded',add_etags=False,cache_timeout=-1,last_modified=None))
+    response = make_response(send_file(filename,mimetype='application/x-www-form-urlencoded',etags=False,max_age=-1,last_modified=None))
     #This has to be done mangling the headers as the hub for whatever reason needs the Content-Length as the last value in the headers otherwise it won't work :(
     del response.cache_control.max_age
     del response.headers['Last-Modified']
