@@ -6,9 +6,9 @@ openssl pkcs12 -in ../docker/mqtt/default/iot.pem -inkey ../docker/mqtt/default/
 #You need to update the output/web/Hxxx serial number back from original over the top.
 #You also need a new DNS entry for the below DNS domain a5kzy4c0c0226-ats.iot.us-east-1.amazonaws.com to point internally and then add the real IP to your local hosts
 
-serialnumber=H010-0651105
-macaddress=000068271904A2F7
-certpassword=9BE64CF91A6242E1ACA099ADC94A1828
+serialnumber=H0xx-0xxxxxx
+macaddress=0000xxxxxxxxxxxx
+certpassword=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 awk -F":" '{print $9}' ../docker/output/web/$serialnumber-$macaddress-2.43.original.bin | base64 -d > $serialnumber.p12
 
