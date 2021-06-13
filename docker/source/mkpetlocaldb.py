@@ -50,24 +50,12 @@ def makedb(data):
             f.close()
     # Create pet hub local tables
     conn = create_connection('pethublocal.db')
+
+    #Import pethublocal.sql file to database
     if conn is not None:
-        sqlcmd(conn, "DROP TABLE devices;")
-        sqlcmd(conn, "DROP TABLE hubs;")
-        sqlcmd(conn, "DROP TABLE doors;")
-        sqlcmd(conn, "DROP TABLE feeders;")
-        sqlcmd(conn, "DROP TABLE tagmap;")
-        sqlcmd(conn, "DROP TABLE pets;")
-        sqlcmd(conn, "DROP TABLE petstate;")
-        sqlcmd(conn, "DROP TABLE devicecounter;")
-        sqlcmd(conn, "CREATE TABLE devices(mac_address TEXT, product_id INTEGER, name TEXT, serial_number TEXT, battery TEXT, device_rssi TEXT, hub_rssi TEXT, version BLOB);")
-        sqlcmd(conn, "CREATE TABLE hubs(mac_address TEXT, led_mode INTEGER, pairing_mode INTEGER, state INTEGER, uptime INTEGER );")
-        sqlcmd(conn, "CREATE TABLE doors(mac_address TEXT, curfewenabled INTEGER, lock_time TEXT, unlock_time TEXT, lockingmode INTEGER, custommode TEXT);")
-        sqlcmd(conn, "CREATE TABLE feeders(mac_address TEXT, bowltype INTEGER, bowl1 INTEGER, bowl2 INTEGER, bowltarget1 INTEGER, bowltarget2 INTEGER, close_delay INTEGER );")
-        sqlcmd(conn, "CREATE TABLE tagmap(mac_address TEXT, deviceindex INTEGER, tag TEXT, profile INTEGER, UNIQUE (mac_address, deviceindex) ON CONFLICT REPLACE );")
-        sqlcmd(conn, "CREATE TABLE pets(tag TEXT, name TEXT, species INTEGER );")
-        sqlcmd(conn, "CREATE TABLE petstate(tag TEXT, mac_address TEXT, timestamp TEXT, state BLOB );")
-        sqlcmd(conn, "CREATE TABLE devicestate(mac_address TEXT, offset INTEGER, length INTEGER, data TEXT, UNIQUE (mac_address, offset, length) ON CONFLICT REPLACE );")
-        sqlcmd(conn, "CREATE TABLE devicecounter(mac_address TEXT, send INTEGER, retrieve INTEGER );")
+        cursor = conn.cursor()
+        pethublocal_file = open("pethublocal.sql")
+        cursor.executescript(pethublocal_file.read())
     else:
         print("Error! cannot create the database connection.")
         exit(1)
@@ -140,14 +128,18 @@ def makedb(data):
                         print('PetState for drinking: Tag = {0}, mac_address = {1}, timestamp={2}, state={3}'.format(tag, mac_address, timestamp, state))
                     sqlcmdvar(conn, "INSERT INTO petstate values((?), (?), (?), (?));", (tag, mac_address, timestamp, state))
 
-
         for device in data.devices:
             if PrintDebug:
                 print("Adding Devices")
 
             deviceid = device.id
             product_id = device.product_id
-            name = device.name
+            if 'name' in device:
+                name = device.name
+            elif 'serial_number' in device:
+                name = device.serial_number
+            else:
+                name = device.mac_address
             if 'serial_number' in device:
                 serial_number = device.serial_number
             else:
@@ -188,17 +180,10 @@ def makedb(data):
                 #Curfew mode
                 if 'enabled' in device.control.curfew:
                     curfewenabled = device.control.curfew.enabled
-                    lock_time = device.control.curfew.lock_time
-                    unlock_time = device.control.curfew.unlock_time
+                    curfews = device.control.curfew.lock_time + "-" + device.control.curfew.unlock_time
                 else:
-                    if 'curfew' in device.status:
-                        curfewenabled = device.status.curfew.enabled
-                        lock_time = device.status.curfew.lock_time
-                        unlock_time = device.status.curfew.unlock_time
-                    else:
-                        curfewenabled = 0
-                        lock_time = ""
-                        unlock_time = ""
+                    curfewenabled = False
+                    curfews = ""
 
                 #Locking mode
                 if 'locking' in device.control:
@@ -209,8 +194,8 @@ def makedb(data):
                     else:
                         lockingmode = 0
                 if PrintDebug:
-                    print('Pet Doors: mac_address = {0}, curfewenabled={1}, lock_time={2}, unlock_time={3}, lockingmode={4}'.format(mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
-                sqlcmdvar(conn, "INSERT INTO doors values((?), (?), (?), (?), (?), '000000');", (mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
+                    print('Pet Doors: mac_address = {0}, lockingmode={1}, curfewenabled={2}, curfews={3} '.format(mac_address, lockingmode, curfewenabled, curfews ))
+                sqlcmdvar(conn, "INSERT INTO doors values((?), (?), (?), (?), '000000');", (mac_address,lockingmode, curfewenabled, curfews ))
 
             if product_id == 4: #Feeder
                 bowltype = device.control.bowls.type
@@ -236,14 +221,19 @@ def makedb(data):
                 sqlcmdvar(conn, "INSERT INTO devicecounter values((?), 0, 0);", [mac_address])
 
             if product_id == 6: #Cat Door
-                if 'enabled' in device.control.curfew:
-                    curfewenabled = device.control.curfew.enabled
-                    lock_time = device.control.curfew.lock_time
-                    unlock_time = device.control.curfew.unlock_time
+                #Curfew mode
+                curfews = ""
+                if len(device.control.curfew) > 0:
+                    curfewenabled = True
+                    #Loop through all the curfews and create a single string "hh:mm-hh:mm,hh:mm-hh:mm" for each enabled curfew where the start end is - deimited and each curfew is comma separated
+                    for curfew in device.control.curfew:
+                        if curfew.enabled:
+                            curfews += curfew.lock_time + "-" + curfew.unlock_time
+                            #Add a comma delimiter unless it's the last entry
+                            if curfew != device.control.curfew[-1]:
+                                curfews += ","
                 else:
-                    curfewenabled = 0
-                    lock_time = ""
-                    unlock_time = ""
+                    curfewenabled = False
 
                 #Locking mode
                 if 'locking' in device.control:
@@ -254,8 +244,8 @@ def makedb(data):
                     else:
                         lockingmode = 0
                 if PrintDebug:
-                    print('Cat Flaps: mac_address = {0}, curfewenabled={1}, lock_time={2}, unlock_time={3}, lockingmode={4}'.format(mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
-                sqlcmdvar(conn, "INSERT INTO doors values((?), (?), (?), (?), (?), '000000');", (mac_address, curfewenabled, lock_time, unlock_time, lockingmode))
+                    print('Pet Doors: mac_address = {0}, lockingmode={1}, curfewenabled={2}, curfews={3} '.format(mac_address, lockingmode, curfewenabled, curfews ))
+                sqlcmdvar(conn, "INSERT INTO doors values((?), (?), (?), (?), '000000');", (mac_address,lockingmode, curfewenabled, curfews ))
                 sqlcmdvar(conn, "INSERT INTO devicecounter values((?), 0, 0);", [mac_address])
 
             if product_id == 8: #Water bowl - Felaqua
@@ -274,14 +264,14 @@ def makedb(data):
                     tagindex = tag.index
                     tagid = tag.id
                     #Cat flap and feeders have a profile, On cat flap profile = 3 = inside only
-                    if tag.profile:
+                    if 'profile' in tag:
                         profile=tag.profile
                     else:
                         profile=0
                     tag = str([x for x in tags if x["id"]==tagid][0].tag)
                     if PrintDebug:
                         print('Tagmap: mac_address = {0}, tagindex={1}, tag={2} profile={3}'.format(mac_address, tagindex, tag, profile))
-                    sqlcmdvar(conn, "INSERT INTO tagmap values((?), (?), (?) );", (mac_address, tagindex, tag, profile))
+                    sqlcmdvar(conn, "INSERT INTO tagmap values((?), (?), (?), (?));", (mac_address, tagindex, tag, profile))
         print("pethublocal.db created/updated")
     else:
         print("Corrupted input file, have you removed the top level data: element?")

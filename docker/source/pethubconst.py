@@ -68,6 +68,11 @@ class FeederState(SureEnum): # Feeder states
     Zero_Left     = 7   # Zero Feeder left scale
     Zero_Right    = 8   # Zero Feeder right scale
 
+class FeederZeroScales(SureEnum): # Feeder states
+    ZeroLeft     = 1    # Zero Feeder left scale
+    ZeroRight    = 2    # Zero Feeder right scale
+    ZeroBoth     = 3    # Zero Feeder both scales
+
 class FeederCloseDelay(SureEnum): # Feeder Close Delay speed
     Fast        = 0     # Fast delay
     Normal      = 4000  # Normal delay
@@ -75,8 +80,8 @@ class FeederCloseDelay(SureEnum): # Feeder Close Delay speed
     Slow        = 20000 # Slow delay
 
 class FeederBowls(SureEnum): # Feeder Close Delay speed
-    Single        = 1   # Single Bowl
-    Double        = 2   # Double Bowl
+    One           = 1   # Single Bowl
+    Two           = 2   # Double Bowl
     Felaqua       = 4   # Felaqua
 
 class PetDoorLockState(SureEnum): # Lock State IDs.
@@ -93,7 +98,7 @@ class PetDoorLockedOutState(SureEnum): # Locked Out State for preventing animals
     Normal          = 2  # Allow pets in
     Locked_Out      = 3  # Keep pets out
 
-class CatFlapLockState(SureEnum): # Lock State IDs.
+class CatFlapLockState(SureEnum): # Cat Flap Lock State from message type 11.
     Status0         = 0
     Status1         = 1
     Normal          = 2  #This is when a cat is provisioned in normal in / out mode
@@ -102,7 +107,7 @@ class CatFlapLockState(SureEnum): # Lock State IDs.
     KeepOut         = 5
     Unlocked        = 6
 
-class CatLockState(SureEnum): # Lock State IDs.
+class CatLockState(SureEnum): # Per Cat Lock State for Cat Flap where you can have selective keep-in
     Status0         = 0
     Status1         = 1
     Normal          = 2
@@ -121,6 +126,10 @@ class CurfewState(SureEnum): # Curfew State
     Off             = 1
     On              = 2
     Status          = 3
+
+class CatFlapCurfewState(SureEnum): # Curfew State
+    Off             = 6
+    On              = 3
 
 class HubLeds(SureEnum):     # Sure Petcare API LED State offset 0x18
     Off             = 0      #Ears Off

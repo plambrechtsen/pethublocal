@@ -44,7 +44,7 @@ if len(sys.argv) > 1:
             print(setvalue)
 
     elif "petdoor" in sys.argv[1]:
-        setvalue = p.generatemessage("xpetdoormacaddyx", sys.argv[2],sys.argv[3])
+        setvalue = p.generatemessage("52E26AFEFF121F80", sys.argv[2],sys.argv[3])
         print(setvalue)
 
     elif "feeder" in sys.argv[1]:
