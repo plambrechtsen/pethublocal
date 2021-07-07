@@ -229,7 +229,8 @@ def test_feeder_command_set_time(request):
     ("SetCloseDelay", "Normal", " 0d a0 0f 00 00"), # 4 Seconds "0fa0" = 4000
     ("SetCloseDelay", "Slow", " 0d 20 4e 00 00"),   # 20 Seconds "4e20" = 20000
     ("Set12", "500", " 12 f4 01 00 00"),            # Set Message 12
-    ("Custom", "", " 14 00 01 00 00"),              # Set Custom Mode - Intruder
+    ("Custom-Intruder", "", " 14 00 01 00 00"),      # Set Custom Mode - Intruder
+    ("Custom-GeniusCat", "", " 14 80 00 00 00"),     # Set Custom Mode - GeniusCat
 ])
 @pytest.mark.pethubcommand
 def test_feeder_command_updatestate(request,test_generate,genvalue,genresponse):
@@ -250,6 +251,8 @@ def test_feeder_command_updatestate(request,test_generate,genvalue,genresponse):
         assert result.message[0].Bowls == genvalue
     if test_generate == 'SetCloseDelay':
         assert result.message[0].Delay == genvalue
+    if test_generate == 'Set12':
+        assert result.message[0].Value == genvalue
     if test_generate == 'Set12':
         assert result.message[0].Value == genvalue
 
@@ -325,7 +328,10 @@ def test_feeder_generate_settime(request):
     ("SetCloseDelay", "Normal", " 0d a0 0f 00 00"), # 4 Seconds "0fa0" = 4000
     ("SetCloseDelay", "Slow", " 0d 20 4e 00 00"),   # 20 Seconds "4e20" = 20000
     ("Set12", "500", " 12 f4 01 00 00"),            # Set Message 12
-    ("Custom", "", " 14 00 01 00 00"),              # Set Custom Mode - Intruder
+    ("Custom-Intruder", "", " 14 00 01 00 00"),     # Set Custom Mode - Intruder
+    ("Custom", "Intruder", " 14 00 01 00 00"),      # Set Custom Mode - Intruder
+    ("Custom-GeniusCat", "", " 14 80 00 00 00"),    # Set Custom Mode - Genius Cat Mode
+    ("Custom", "GeniusCat", " 14 80 00 00 00"),     # Set Custom Mode - Genius Cat Mode
 ])
 @pytest.mark.pethubgenerate
 def test_feeder_generate_setvalues(request,test_generate,genvalue,genresponse):
@@ -338,9 +344,9 @@ def test_feeder_generate_setvalues(request,test_generate,genvalue,genresponse):
     assert genresponse in result.msg
 
 @pytest.mark.parametrize("test_zeroscale,zerovalue,zeroresponse", [
-    ("ZeroScale", "Left", "01"),  # Set Left Target Weight
-    ("ZeroScale", "Right", "02"), # Set Right Target Weight
-    ("ZeroScale", "Both", "03"),  # Set Bowl Count
+    ("ZeroScale", "Left", "01"),  # Zero Left Scale
+    ("ZeroScale", "Right", "02"), # Zero Right Scale
+    ("ZeroScale", "Both", "03"),  # Zero Both Scales
 ])
 @pytest.mark.pethubgenerate
 def test_feeder_generate_zeroscales(request,test_zeroscale,zerovalue,zeroresponse):
