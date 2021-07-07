@@ -284,7 +284,7 @@ def parseframe(device, value):
     elif value[0] == 0x07: #Set Time
         frameresponse.Operation="Settime"
         frameresponse.Type=tohex(value[8:])
-    elif value[0] == 0x09: #Update state messages with subtypes depending on device type
+    elif value[0] == 0x09: #Update or query config registers with subtypes depending on device type
         frameresponse.Operation="UpdateState"
         submessagevalue = b2is(value[9:12])
         if value[8]==0x05: # Training mode
@@ -306,10 +306,11 @@ def parseframe(device, value):
             frameresponse.SubOperation="Set12"
             frameresponse.Value = submessagevalue
             frameresponse.MSG=tohex(value[9:])
-        elif value[8] == 0x14:  # Custom Mode
-            frameresponse.SubOperation = "Custom"
+        elif value[8] == 0x14:  # Custom Modes for Feeder
+            frameresponse.SubOperation = "Custom-" + FeederCustomMode(int(submessagevalue)).name
             frameresponse.MODE = submessagevalue
-            frameresponse.MSG = tohex(value[9:])
+            frameresponse.MSG = FeederCustomMode(int(submessagevalue)).name
+            sqlcmd('UPDATE devices SET custommode=' + submessagevalue + ' WHERE mac_address = "' + device + '"')
         elif value[8]==0x17: #Set ZeroLeftWeight
             frameresponse.SubOperation="ZeroLeft"
             frameresponse.WEIGHT=submessagevalue
@@ -657,7 +658,7 @@ def parsedoorframe(mac_address,offset,value):
 def inithubmqtt():
     response = Box();
     #Devices
-    curs.execute('select name,product_id,devices.mac_address,serial_number,uptime,version,state,battery,led_mode,pairing_mode,lockingmode,curfewenabled,curfews,bowl1,bowl2,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
+    curs.execute('select name,product_id,devices.mac_address,serial_number,uptime,version,devices.custommode,state,battery,led_mode,pairing_mode,lockingmode,curfewenabled,curfews,bowl1,bowl2,bowltarget1,bowltarget2,bowltype,close_delay from devices left outer join hubs on devices.mac_address=hubs.mac_address left outer join doors on devices.mac_address=doors.mac_address left outer join feeders on devices.mac_address=feeders.mac_address;')
     devices = curs.fetchall()
     if devices:
         response.devices = devices
@@ -875,11 +876,13 @@ def generatemessage(mac_address,operation,state):
             "RemoveDev3"   : { "msg" : "2 22 1 03",  "desc" : "Remove Provisioned device 3" },                   #Remove Provisioned device 3
             "RemoveDev4"   : { "msg" : "2 22 1 04",  "desc" : "Remove Provisioned device 4" }                    #Remove Provisioned device 4
         })
-        if operation == "operations":      #Dump all memory registers from 0 to 205
+        if operation == "operations":
             return operations
         elif operation in operations:
             #print("Operation to do: " + operation)
             return Box({"topic":"pethublocal/messages", "msg":buildmqttsendmessage(operations[operation].msg)})
+        elif operation == "custom":
+            return Box({"topic":"pethublocal/messages", "msg":buildmqttsendmessage(state)})
         else:
             return Box({"error":"Unknown message"})
 
@@ -945,17 +948,18 @@ def generatemessage(mac_address,operation,state):
 
     elif EntityType(int(device.product_id)).name == "FEEDER": #Feeder
         ackdatatype = Box({
-            "Boot9"     : "09", #Boot message 09
+            "Config"    : "09", #Config registers
             "Unknown0b" : "0b", #Unknown 0b message
             "Battery"   : "0c", #Battery state change
             "Boot10"    : "10", #Boot message 10
             "Tags"      : "11", #Tag provisioning
+            "Custom"    : "14", #Tag provisioning
             "Status16"  : "16", #Status 16 message, happens each time feeder manually opened
             "Boot17"    : "17", #Boot message 17
             "Feeder"    : "18", #Feeder state change
         })
         getdatatype = Box({
-            "Boot9"     : "09 00 ff",  #Boot message 09
+            "Config"    : "09 00 ff",  #Config registers
             "Unknown0b" : "0b 00",     #Unknown 0b
             "Battery"   : "0c 00",     #Battery state
             "Boot10"    : "10 00",     #Boot message 10
@@ -982,19 +986,29 @@ def generatemessage(mac_address,operation,state):
         })
         #All messages detected sending to the feeder, if the fields have validation then they have a validate date referencing the above dictionary key value pairs
         operations = Box({
-            "Ack"            : { "msg" : "127 00 00 ZZ ZZ TT TT TT TT SS 00 00",                             "desc" : "Send acknowledge to data type", "validate": ackdatatype },  #Send acknowledge to data type
-            "Get"            : { "msg" : "127 01 00 ZZ ZZ TT TT TT TT SS",                                   "desc" : "Get current state of data type", "validate": getdatatype }, #Get data type state
-            "SetTime"        : { "msg" : "127 07 00 ZZ ZZ TT TT TT TT 00 00 00 00 07",                       "desc" : "Set the device time" },                                     #Set device time, seems like the last byte = 04 sets time when going forward, 05 sets time, 06 sets time on boot
-            "SetLeftScale"   : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 0a WW WW WW WW",                       "desc" : "Set the left or single scale target weight" },              #Set left or single scale weight in grams to 2 decimal places
-            "SetRightScale"  : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 0b WW WW WW WW",                       "desc" : "Set the right scale target weight" },                       #Set right scale weight in grams to 2 decimal places
-            "SetBowlCount"   : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 0c SS 00 00 00",                       "desc" : "Set the bowl count", "validate": bowlcount },               #Set bowl count either 01 for one bowl or 02 for two.
-            "SetCloseDelay"  : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 0d LL LL LL LL",                       "desc" : "Set the lid close delay", "validate": lidclosedelay },      #Set lid close delay, 0 (fast) , 4 seconds (normal), 20 seconds (slow)
-            "Set12"          : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 12 f4 01 00 00",                       "desc" : "Set the 12 message" },                                      #Not sure what caused this but it happened around setting the scales
-            "Custom"         : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 14 00 01 00 00",                       "desc" : "Set Custom Mode - Intruder" },                              #Custom mode - Intruder - This closes the feeder when non-provisioned tags are detected
-            "ZeroScale"      : { "msg" : "127 0d 00 ZZ ZZ TT TT TT TT 00 19 00 00 00 03 00 00 00 00 01 SS",  "desc" : "Zero the scales left/right/both", "validate": zeroscale },  #Zero left right or both scales
-            "TagProvision"   : { "msg" : "127 11 00 ZZ ZZ TT TT TT TT CC CC CC CC CC CC CC 02 II SS",        "desc" : "Provision/enable or disable chip" }                         #Provision or enable or disable chip
+            "Ack"              : { "msg" : "127 00 00 ZZ ZZ TT TT TT TT SS 00 00",                             "desc" : "Send acknowledge to data type", "validate": ackdatatype },  #Send acknowledge to data type
+            "Get"              : { "msg" : "127 01 00 ZZ ZZ TT TT TT TT SS",                                   "desc" : "Get current state of data type", "validate": getdatatype }, #Get data type state
+            "SetTime"          : { "msg" : "127 07 00 ZZ ZZ TT TT TT TT 00 00 00 00 07",                       "desc" : "Set the device time" },                                     #Set device time, seems like the last byte = 04 sets time when going forward, 05 sets time, 06 sets time on boot
+            "SetLeftScale"     : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 0a WW WW WW WW",                       "desc" : "Set the left or single scale target weight" },              #Set left or single scale weight in grams to 2 decimal places
+            "SetRightScale"    : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 0b WW WW WW WW",                       "desc" : "Set the right scale target weight" },                       #Set right scale weight in grams to 2 decimal places
+            "SetBowlCount"     : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 0c SS 00 00 00",                       "desc" : "Set the bowl count", "validate": bowlcount },               #Set bowl count either 01 for one bowl or 02 for two.
+            "SetCloseDelay"    : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 0d LL LL LL LL",                       "desc" : "Set the lid close delay" },                                 #Set lid close delay, 0 (fast) , 4 seconds (normal), 20 seconds (slow)
+            "Set12"            : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 12 f4 01 00 00",                       "desc" : "Set the 12 message" },                                      #Not sure what caused this but it happened around setting the scales
+            "Custom"           : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 14 CM CM CM CM",                       "desc" : "Set Custom Mode" },                                         #Custom mode
+            "Custom-Intruder"  : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 14 00 01 00 00",                       "desc" : "Set Custom Mode - Intruder" },                              #Custom mode - Intruder
+            "Custom-GeniusCat" : { "msg" : "127 09 00 ZZ ZZ TT TT TT TT 14 80 00 00 00",                       "desc" : "Set Custom Mode - Genius Cat Mode"},                        #Custom mode - Genius Cat Mode
+            "ZeroScale"        : { "msg" : "127 0d 00 ZZ ZZ TT TT TT TT 00 19 00 00 00 03 00 00 00 00 01 SS",  "desc" : "Zero the scales left/right/both", "validate": zeroscale },  #Zero left right or both scales
+            "TagProvision"     : { "msg" : "127 11 00 ZZ ZZ TT TT TT TT CC CC CC CC CC CC CC 02 II SS",        "desc" : "Provision/enable or disable chip" }                         #Provision or enable or disable chip
         })
-        if operation in operations:
+        if operation == 'Ack':
+            message = operations[operation].msg
+            inack = state.split('-')
+            message = message.replace("SS", hb(int(inack[0], 16)))
+            message = message.replace('ZZ ZZ', splitbyte(int(inack[1]).to_bytes(2, 'little').hex()))  # Replace device send counter in the record
+            hubts = splitbyte(devicetimestampfromnow())
+            message = message.replace('TT TT TT TT', hubts) #Replace timestamp in the record
+            return Box({"topic":"pethublocal/messages/"+mac_address, "msg":buildmqttsendmessage(message)})
+        elif operation in operations:
             message = operations[operation].msg
             #Update standard values of the counter, and the timestamp
             hubts = splitbyte(devicetimestampfromnow())
@@ -1003,7 +1017,6 @@ def generatemessage(mac_address,operation,state):
             message = message.replace('TT TT TT TT', hubts) #Replace timestamp in the record
             #This operation has values we should validate
             if "validate" in operations[operation]:
-                #print(operations[operation].validate)
                 if state in operations[operation].validate: #Has string value to map
                     message = message.replace("SS", operations[operation].validate[state])
                 elif hb(int(state,16)) in operations[operation].validate.values(): #Has value that exists in validation dictionary
@@ -1022,10 +1035,17 @@ def generatemessage(mac_address,operation,state):
 
             #Lid Close Delay speed
             if "LL LL LL LL" in message:
-                if state in lidclosedelay:
-                    message = message.replace("LL LL LL LL", lidclosedelay[state])
+                if FeederCloseDelay.has_member(state):
+                    message = message.replace("LL LL LL LL", FeederCloseDelay[state].as_hex())
                 else:
                     return Box({"error":"No valid lid close delay passed"})
+
+            #Custom Mode
+            if "CM CM CM CM" in message:
+                if FeederCustomMode.has_member(state):
+                    message = message.replace("CM CM CM CM", FeederCustomMode[state].as_hex())
+                else:
+                    return Box({"error":"Invalid custom mode passed " + state})
 
             #Chip Provisioning
             if "CC CC CC CC CC CC CC" in message:
@@ -1259,7 +1279,10 @@ def devicecounter(mac_address,send,retrieve):
 
 def updatedb(tab,mac_address,col,val):
     cur = conn.cursor()
-    upd = 'UPDATE '+ tab + ' SET ' + col + ' = "' + val + '" WHERE mac_address = "' + mac_address + '"'
+    macval = ''
+    if len(mac_address) > 1:
+        macval = ' WHERE mac_address = "' + mac_address + '"'
+    upd = 'UPDATE '+ tab + ' SET ' + col + ' = "' + val + '"' + macval
     cur.execute(upd)
     conn.commit()
 

@@ -23,24 +23,17 @@ curs=conn.cursor()
 if len(sys.argv) > 1:
 
     if "hub" in sys.argv[1]:
-        print("len ",len(sys.argv))
+        #print("len ",len(sys.argv))
         curs.execute('select mac_address from devices where product_id = "1"')
         device = curs.fetchone()
-        operations = p.generatemessage(device.mac_address, 'operations','')
+        #operations = p.generatemessage(device.mac_address, 'operations','')
         if device and len(sys.argv) <= 2:
             print("Hub Supported operations:")
             for key in operations:
                 print ('Hub: {:<15s}{:>3s}'.format(key, operations[key].desc))
-        elif device and len(sys.argv) == 3:
-            if sys.argv[2] in operations:
-                print("Op Good")
-        elif not device:
-            print('Device not found')
         else:
-            if PrintDebug:
-                print(device)
             print('Send a Hub message')
-            setvalue = p.generatemessage(device.mac_address, sys.argv[2],'')
+            setvalue = p.generatemessage(device.mac_address, sys.argv[2],sys.argv[3])
             print(setvalue)
 
     elif "petdoor" in sys.argv[1]:
@@ -95,5 +88,7 @@ if len(sys.argv) > 1:
         mc = mqtt.Client()
         mc.connect(mqtthost, mqttport, 30)
 
+#        ret=mc.publish('pethublocal/testing/messages',setvalue.msg,qos=1)
         ret=mc.publish(setvalue.topic,setvalue.msg,qos=1)
+        print('mqtt response',ret)
    

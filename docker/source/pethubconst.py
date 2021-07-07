@@ -24,27 +24,48 @@
     Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 """
 
-from enum import IntEnum
+from enum import IntEnum, IntFlag
 
 class SureEnum(IntEnum):
-    """Sure base enum."""
+    #Sure Int enum for integer based enums
     def __str__(self) -> str:
         return self.name.title()
+
+    def as_hex(self):
+        bytestring=self.to_bytes(4, 'little').hex()
+        return " ".join(bytestring[i:i + 2] for i in range(0, len(bytestring), 2))
 
     @classmethod
     def has_value(self, value):
         return value in self._value2member_map_ 
 
     @classmethod
-    def _missing_(self, value):
-        return value
+    def has_member(self, value):
+        return value in self._member_names_
 
-    @classmethod #Handle weird values, as it really shouldn't crash.
+    @classmethod #Handle weird values, as it really shouldn't crash
     def _missing_(self, value):
         new_member = int.__new__(self, value)
-        new_member._name_ = str(value) 
+        new_member._name_ = str(value)
         new_member._value_ = value
         return self._value2member_map_.setdefault(value, new_member)
+
+class SureFlag(IntFlag):
+    """Sure Flag enum."""
+    def as_hex(cls):
+        bytestring=cls.to_bytes(4, 'little').hex()
+        return " ".join(bytestring[i:i + 2] for i in range(0, len(bytestring), 2))
+
+    def string_array(cls):
+        return [member for member in cls._member_names_ if member in str(cls)]
+
+    @classmethod
+    def has_value(self, value):
+        return value in self._value2member_map_
+
+    @classmethod
+    def has_member(self, value):
+        return value in self._member_names_
 
 class EntityType(SureEnum):
     """Sure Entity Types."""
@@ -185,3 +206,16 @@ class OnOff(SureEnum): # Enabled disabled
     Off              = 0
     On               = 1
     Status           = 2
+
+class FeederCustomMode(SureFlag): #Custom Modes on the Feeder
+    Intruder = 0x100   # Bit9 - Intruder Mode - Close lid when another non-provisioned tag turns up
+    GeniusCat = 0x80   # Bit8 - Genius Cat Mode - Disable open/close button as Genius Cat has figured out how to open the feeder by pressing button.
+    Bit7 = 0x40
+    Bit6 = 0x20
+    Bit5 = 0x10
+    Bit4 = 0x8
+    Bit3 = 0x4
+    Bit2 = 0x2
+    Bit1 = 0x1
+    Normal = 0
+

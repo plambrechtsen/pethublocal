@@ -158,7 +158,7 @@ def makedb(data):
             version = json.dumps(device.status.version)
             if PrintDebug:
                 print('Devices: mac_address = {0}, product_id={1}, name={2}, serial_number={3}, battery={4}, device_rssi={5}, hub_rssi={6}, version={7}'.format(mac_address, product_id, name, serial_number, battery, device_rssi, hub_rssi, version))
-            sqlcmdvar(conn, "INSERT INTO devices values((?), (?), (?), (?), (?), (?), (?), (?));", (mac_address, product_id, name, serial_number, battery, device_rssi, hub_rssi, version))
+            sqlcmdvar(conn, "INSERT INTO devices values((?), (?), (?), (?), (?), (?), (?), (?), 0);", (mac_address, product_id, name, serial_number, battery, device_rssi, hub_rssi, version))
 
             if product_id == 1: #Hub
                 if 'led_mode' in device.control:
@@ -195,7 +195,7 @@ def makedb(data):
                         lockingmode = 0
                 if PrintDebug:
                     print('Pet Doors: mac_address = {0}, lockingmode={1}, curfewenabled={2}, curfews={3} '.format(mac_address, lockingmode, curfewenabled, curfews ))
-                sqlcmdvar(conn, "INSERT INTO doors values((?), (?), (?), (?), '000000');", (mac_address,lockingmode, curfewenabled, curfews ))
+                sqlcmdvar(conn, "INSERT INTO doors values((?), (?), (?), (?));", (mac_address,lockingmode, curfewenabled, curfews ))
 
             if product_id == 4: #Feeder
                 bowltype = device.control.bowls.type
@@ -245,7 +245,7 @@ def makedb(data):
                         lockingmode = 0
                 if PrintDebug:
                     print('Pet Doors: mac_address = {0}, lockingmode={1}, curfewenabled={2}, curfews={3} '.format(mac_address, lockingmode, curfewenabled, curfews ))
-                sqlcmdvar(conn, "INSERT INTO doors values((?), (?), (?), (?), '000000');", (mac_address,lockingmode, curfewenabled, curfews ))
+                sqlcmdvar(conn, "INSERT INTO doors values((?), (?), (?), (?));", (mac_address,lockingmode, curfewenabled, curfews ))
                 sqlcmdvar(conn, "INSERT INTO devicecounter values((?), 0, 0);", [mac_address])
 
             if product_id == 8: #Water bowl - Felaqua

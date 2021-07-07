@@ -1,10 +1,10 @@
 BEGIN TRANSACTION;
 DROP TABLE IF EXISTS devices;
-CREATE TABLE devices(mac_address TEXT, product_id INTEGER, name TEXT, serial_number TEXT, battery TEXT, device_rssi TEXT, hub_rssi TEXT, version BLOB);
+CREATE TABLE devices(mac_address TEXT, product_id INTEGER, name TEXT, serial_number TEXT, battery TEXT, device_rssi TEXT, hub_rssi TEXT, version BLOB, custommode INTEGER);
 DROP TABLE IF EXISTS hubs;
 CREATE TABLE hubs(mac_address TEXT, led_mode INTEGER, pairing_mode INTEGER, state INTEGER, uptime INTEGER );
 DROP TABLE IF EXISTS doors;
-CREATE TABLE doors(mac_address TEXT, lockingmode INTEGER, curfewenabled INTEGER, curfews TEXT, custommode TEXT);
+CREATE TABLE doors(mac_address TEXT, lockingmode INTEGER, curfewenabled INTEGER, curfews TEXT);
 DROP TABLE IF EXISTS feeders;
 CREATE TABLE feeders(mac_address TEXT, bowltype INTEGER, bowl1 INTEGER, bowl2 INTEGER, bowltarget1 INTEGER, bowltarget2 INTEGER, close_delay INTEGER );
 DROP TABLE IF EXISTS tagmap;
