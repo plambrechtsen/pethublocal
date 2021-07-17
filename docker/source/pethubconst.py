@@ -81,13 +81,14 @@ class EntityType(SureEnum):
     DEVICES       = 13  # artificial ID, Pet Flap + Cat Flap + Feeder = 3 + 6 + 4 = 13  ¯\_(ツ)_/¯
 
 class FeederState(SureEnum): # Feeder states
-    Animal_Open   = 0   # Animal Open Feeder
-    Animal_Closed = 1   # Animal Closed Feeder
-    Manual_Open   = 4   # Manually Opened Feeder
-    Manual_Closed = 5   # Manually Closed Feeder
-    Zero_Both     = 6   # Zero Feeder both scales
-    Zero_Left     = 7   # Zero Feeder left scale
-    Zero_Right    = 8   # Zero Feeder right scale
+    Animal_Open   = 0    # Animal Open Feeder
+    Animal_Closed = 1    # Animal Closed Feeder
+    Intruder_Closed = 2  # Intruder Mode Active and second animal turned up so closed feeder
+    Manual_Open   = 4    # Manually Opened Feeder
+    Manual_Closed = 5    # Manually Closed Feeder
+    Zero_Both     = 6    # Zero Feeder both scales
+    Zero_Left     = 7    # Zero Feeder left scale
+    Zero_Right    = 8    # Zero Feeder right scale
 
 class FeederZeroScales(SureEnum): # Feeder states
     ZeroLeft     = 1    # Zero Feeder left scale
@@ -199,14 +200,21 @@ class OnOff(SureEnum): # Enabled disabled
     Status           = 2
 
 class FeederCustomMode(SureFlag): #Custom Modes on the Feeder
-    Intruder = 0x100   # Bit9 - Intruder Mode - Close lid when another non-provisioned tag turns up
-    GeniusCat = 0x80   # Bit8 - Genius Cat Mode - Disable open/close button as Genius Cat has figured out how to open the feeder by pressing button.
-    Bit7 = 0x40
-    Bit6 = 0x20
-    Bit5 = 0x10
-    Bit4 = 0x8
-    Bit3 = 0x4
-    Bit2 = 0x2
-    Bit1 = 0x1
-    Normal = 0
+    Bit16 = 0x8000       # Bit16 - ?
+    Bit15 = 0x4000       # Bit15 - ?
+    Bit14 = 0x2000       # Bit14 - ?
+    Bit13 = 0x1000       # Bit13 - ?
+    Bit12 = 0x800        # Bit12 - ?
+    Bit11 = 0x400        # Bit11 - ?
+    Bit10 = 0x200        # Bit10 - ?
+    Intruder = 0x100     # Bit9 - Intruder Mode - Close lid when another non-provisioned tag turns up
+    GeniusCat = 0x80     # Bit8 - Genius Cat Mode - Disable open/close button as Genius Cat has figured out how to open the feeder by pressing button.
+    NonSelective = 0x40  # Bit7 - Non Selective Entry - Allow any animal who breaks the infrared link to open feeder
+    Bit6 = 0x20          # Bit6 - ?
+    Bit5 = 0x10          # Bit5 - ?
+    Bit4 = 0x8           # Bit4 - ?
+    Bit3 = 0x4           # Bit3 - ?
+    Bit2 = 0x2           # Bit2 - ?
+    Bit1 = 0x1           # Bit1 - ?
+    Normal = 0           # Normal mode, all custom modes disabled.
 

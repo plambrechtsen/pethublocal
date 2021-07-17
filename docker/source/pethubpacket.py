@@ -59,13 +59,6 @@ fh.setFormatter(logformat)
 log.addHandler(fh)
 '''
 
-#Import xor key from pethubpacket.xorkey and make sure it is sane.
-for file in glob.glob("pethubpacket.xorkey"):
-    xorfile=Path(file).read_text()
-    if len(xorfile) > 20 and len(xorfile) % 2 == 0:
-        xorkey=bytearray.fromhex(xorfile)
-    else:
-        sys.exit("Corrupted pethubpacket.xorkey file, make sure the length is an even set of bytes")
 
 #Load PetHubLocal database
 def box_factory(cursor, row): #Return results as a Box/dict key value pair
@@ -152,8 +145,12 @@ def bytestotag(tagbytes):
     print(tohex(tagbytes))
     if len(tagbytes) == 7:
         if tagbytes[6] == 0x01: # FDX-B tag type 0x01
-            chipval = "{0:48b}".format(int.from_bytes(tagbytes[:6], byteorder='little'))
-            return str(int(chipval[:10], 2)) + "." + str(int(chipval[10:], 2)).zfill(12)
+            tagint = int.from_bytes(tagbytes[:6], byteorder='little')
+            if tagint > 0:
+                tagbin = "{0:48b}".format(tagint)
+                return str(int(tagbin[:10], 2)) + "." + str(int(tagbin[10:], 2)).zfill(12)
+            else:
+                return 'Empty'
         elif tagbytes[6] == 0x03: # HDX Tag type 0x07
             #HDX
             return tohex(tagbytes[:5])
@@ -292,7 +289,7 @@ def parseframe(device, value):
         if Print126Frame:
             print("FF-01:QRY-" + hb(value[8]))
     elif value[0] == 0x07: #Set Time
-        frameresponse.Operation="Settime"
+        frameresponse.Operation="Time"
         frameresponse.Type=tohex(value[8:])
     elif value[0] == 0x09: #Update or query config registers with subtypes depending on device type
         frameresponse.Operation="UpdateState"
@@ -616,7 +613,7 @@ def parsedoorframe(mac_address,offset,length,value):
         frameresponse.Operation=op
         operation.append(op)
         pet=round((int(offset)-84)/7)-1 #Calculate the pet number
-        chip=doorhextochip(value[4:]) #Calculate chip Number
+        chip=doorhextochip(value[4:])   #Calculate chip Number
         frameresponse.PetOffset=pet
         frameresponse.Chip=chip
     if offset == 519: #Curfew
@@ -823,55 +820,6 @@ def decodehubmqtt(topic,message):
         response.message = resp
     return Box(response)
 
-def decodemiwi(timestamp,source,destination,framestr):
-    framexor=bytearray.fromhex(framestr)
-    #Convert MAC addresses into reverse byte format.
-    sourcemac=''.join(list(reversed(source.split(":")))).upper()
-    destinationmac=''.join(list(reversed(destination.split(":")))).upper()
-
-    timesplit=timestamp.split(".")
-    hextimestamp = hex(round(int(timesplit[0])))[2:]
-    #print("Time " + hextimestamp)
-
-    #Dexor the frame
-    frame = list(map(xor, framexor, xorkey))
-
-    if PrintFrame:
-        print("Received frame at: " + hextimestamp + " from: " + sourcemac + " to: " + destinationmac)
-        print("Packet:" + tohex(framexor))
-        print("Dexor :" + tohex(frame))
-    if len(frame) > 8:
-        response = []
-        if PrintFrameDbg:
-            print("Frame Type       :", hb(frame[2]))
-            print("Frame Length     :", len(frame))
-            print("Frame Length Val :", frame[4])
-        payload=frame[6:frame[4]+1]
-        logmsg=""
-        if frame[2] == 0x2a: #126 Message Feeder to Hub Message which will be a multiframe
-            if Print126Frame:
-                print("FF-2A Request : " + sourcemac + " " + tohex(payload))
-            response=parsemultiframe(sourcemac,payload)
-            if len(response) > 0 and Print127Frame:
-                print("FF-2A Response: ", response)
-        elif frame[2] == 0x2d: #127 Message Hub to Feeder or Cat Door control message which will be a single frame
-            if Print127Frame:
-                print("FF-2D Request : " + sourcemac + " " + tohex(payload))
-            singleframeresponse = parseframe(sourcemac, payload)
-            response.append(singleframeresponse)
-            op=singleframeresponse.Operation
-            response.append({"Operation":[Operation]})
-            if len(response) > 0 and Print127Frame:
-                print("FF-2D Response: ", response)
-        elif frame[2] == 0x3c: #Pet door frame
-            if Print132Frame:
-                print("DF-132 Request: " + tohex(payload))
-            #print(parsedoorframe('Status',sourcemac,int(b2ibs(payload[0:2])),tohex(payload[2:-1])))
-        return response
-    else:
-        logmsg = "Corrupt Frame " + tohex(frame)
-    return "Received frame at: " + timestamp + " from: " + sourcemac + " to: " + destinationmac + " " + logmsg
-
 def buildmqttsendmessage(value):
   return hextimestampfromnow() + " 1000 " + value
 
@@ -999,6 +947,7 @@ def generatemessage(mac_address,operation,state):
             "Feeder"    : "18", #Feeder state change
         })
         getdatatype = Box({
+            "Time"      : "07 00",     #Time
             "Config"    : "09 00 ff",  #Config registers
             "Unknown0b" : "0b 00",     #Unknown 0b
             "Battery"   : "0c 00",     #Battery state

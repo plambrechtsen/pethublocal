@@ -247,7 +247,7 @@ def on_feeder_hub_message(client, obj, msg):
                 log.debug(LogFeederPrefix + " Feed message - " + json.dumps(mv))
                 states[mac_address].State = mv['Action']
 
-                if mv['Action'] in ['Animal_Closed', 'Manual_Closed']:
+                if mv['Action'] in ['Animal_Closed', 'Intruder_Closed', 'Manual_Closed']:
                     # Update feeder current weight
                     states[mac_address]['Open Seconds'] = mv['Time']
                     states[mac_address]['Left weight'] = mv['LeftTo']

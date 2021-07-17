@@ -34,15 +34,12 @@ if len(sys.argv) > 1:
         else:
             print('Send a Hub message')
             setvalue = p.generatemessage(device.mac_address, sys.argv[2],sys.argv[3])
-            print(setvalue)
 
     elif "petdoor" in sys.argv[1]:
         setvalue = p.generatemessage("52E26AFEFF121F80", sys.argv[2],sys.argv[3])
-        print(setvalue)
 
     elif "feeder" in sys.argv[1]:
         setvalue = p.generatemessage("xfeedermacaddyxx", sys.argv[2],sys.argv[3])
-        print(setvalue)
 
     else:
         curs.execute('select product_id from devices where mac_address = "' + sys.argv[1] + '"')
@@ -54,9 +51,9 @@ if len(sys.argv) > 1:
             else:
                 status = ""
             setvalue = p.generatemessage(sys.argv[1], sys.argv[2],status)
-            print(setvalue)
 
     if setvalue:
+        print("Command to send: ",setvalue)
         parser = ConfigParser()
         if pathlib.Path("../config.ini").exists():
             with open("../config.ini") as stream:
