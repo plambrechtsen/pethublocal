@@ -39,7 +39,7 @@ LogAirFrame = False      #Log the frame sent over the air as a hub mqtt packet t
 PrintFrameDbg = False    #Print the frame headers
 Print126Frame = False    #Debug the 2A / 126 feeder frame
 Print127Frame = False    #Debug the 2D / 127 feeder frame
-Print132Frame = False    #Debug the 3C / 132 hub and door frame
+Print132Frame = True    #Debug the 3C / 132 hub and door frame
 PrintHubFrame = False    #Debug the Hub frame
 PrintFeederFrame = False #Debug the Hub frame
 Print2Frame = False      #Debug the 2 frame
@@ -148,26 +148,27 @@ def chiptohex(chip):
         chiphex = "Error"
     return chiphex
 
-def hextochip(chiphex):
-    chipbytes = bytes.fromhex(chiphex)
-    chip = ""
-    if len(chiphex) == 10:
-        chip=chiphex
-    elif chipbytes[5] == 0:
-        #HDX
-        chip=chiphex[:10]
+def bytestotag(tagbytes):
+    print(tohex(tagbytes))
+    if len(tagbytes) == 7:
+        if tagbytes[6] == 0x01: # FDX-B tag type 0x01
+            chipval = "{0:48b}".format(int.from_bytes(tagbytes[:6], byteorder='little'))
+            return str(int(chipval[:10], 2)) + "." + str(int(chipval[10:], 2)).zfill(12)
+        elif tagbytes[6] == 0x03: # HDX Tag type 0x07
+            #HDX
+            return tohex(tagbytes[:5])
+        elif tagbytes[6] == 0x07: # Empty Tag 0x07
+            return "Empty"
+        elif tagbytes[6] == 0x00:  # Empty Tag 0x00
+            return "Empty"
     else:
-        #FDX-B
-        chipval = "{0:48b}".format(int.from_bytes(chipbytes[:6], byteorder='little'))
-        chip=str(int(chipval[:10],2)) + "." + str(int(chipval[10:],2)).zfill(12)
-        #print("Feeder Hex to Chip : " + chiphex + " " + chip)
-    return chip
+        return tohex(tagbytes)
 
 def doorchiptohex(chip):
     chipsplit=chip.split(".")
     chipbin=format(int(chipsplit[0]),'b').zfill(10)+format(int(chipsplit[1]),'b').zfill(38)
     #print(chipbin)
-    chiphex=hex(int(chipbin[::-1],2))[2:]
+    chiphex='01' + hex(int(chipbin[::-1],2))[2:]
     #print("Door   Chip to Hex : " + chip + " " + chiphex)
     return chiphex
 
@@ -214,7 +215,16 @@ def hb(hexbyte):
     return format(hexbyte,'02x')
 
 def converttime(timearray):
+    #Seems that the minutes returned are in the upper byte, so need to subtract 128.
+    if timearray[1] >= 128:
+        timearray[1] -= 128
     return ':'.join(format(x, '02d') for x in timearray)
+
+def converttimetominutes(timearray):
+    #Seems that the minutes returned are in the upper byte, so need to subtract 128.
+    if timearray[1] >= 128:
+        timearray[1] -= 128
+    return str((timearray[0]*60)+timearray[1])
 
 def converttimetohex(timestring): #For curfew time
     time=timestring.split(':')
@@ -340,34 +350,42 @@ def parseframe(device, value):
             frameresponse.Scale = FeederZeroScales(int(value[19])).name
         else:
             frameresponse.Operation="CurfewLockState"
-            frameresponse.MSG = tohex(value)
             frameresponse.LockState = CatFlapLockState(int(value[29])).name
             frameresponse.LockStateNumber = str(PetDoorLockState[frameresponse.LockState].value)
+            #frameresponse.MSG = tohex(value)
 
-    elif value[0] == 0x11: #Provision chip to device and set lock states on cat flap.
-        curs.execute('select product_id from devices where mac_address=(?)', ([device]))
-        devtype = curs.fetchone()
-        #if devtype.product_id == 4:
-        if value[14] in [0x01,0x03]: #Provisioning HDX (1) or FDX-B (3) chip
-            tag = hextochip(tohex(value[8:15]))
-            curs.execute('select name from pets where tag=(?)', ([tag]))
-            petval = curs.fetchone()
-            if petval:
-                frameresponse.Animal=petval.name
+    elif value[0] == 0x11: #Provision tag to device and set lock states on cat flap.
+        if value[16] == 0x00 and TagState(value[17]).name == "LockState": #CatFlap Status Update on offset 0 and TagState = 2
+            frameresponse.Operation="LockState"
+            frameresponse.Animal = "Empty"
+            frameresponse.Offset = value[16]
+            frameresponse.LockState=CatFlapLockState(int(value[15])).name
+            frameresponse.LockStateNumber=str(PetDoorLockState[frameresponse.LockState].value)
+            sqlcmd('UPDATE doors SET lockingmode=' + frameresponse.LockStateNumber + ' WHERE mac_address = "' + device + '"')
+        elif value[14] in [0x01,0x03,0x07]: #Provisioning HDX (1) or FDX-B (3) chip
+            frameresponse.Operation="Tag"
+            tag = bytestotag(value[8:15])
+            if tag == "Empty":
+                frameresponse.Animal = tag
             else:
-                frameresponse.Animal=tag
-            frameresponse.Operation="TagProvision"
+                curs.execute('select name from pets where tag=(?)', ([tag]))
+                petval = curs.fetchone()
+                if petval:
+                    frameresponse.Animal=petval.name
+                else:
+                    frameresponse.Animal=tag
             #Setting Lock State on the Animal rather than the Door
             frameresponse.LockState=CatFlapLockState(int(value[15])).name
-#            frameresponse.LockStateNumber=str(PetDoorLockState[frameresponse.LockState].value)
+            frameresponse.LockStateNumber=str(int(value[15]))
             frameresponse.Offset=value[16]
-            frameresponse.ChipState=ProvChipState(value[17]).name
+            frameresponse.TagState=TagState(value[17]).name
         elif value[14] == 0x07: #Set Cat Flap Lock State
-            frameresponse.Operation="LockState"
+            frameresponse.Operation="Tag"
+            frameresponse.Animal = "Empty"
+            frameresponse.Offset = value[16]
             frameresponse.LockState=CatFlapLockState(int(value[15])).name
             frameresponse.LockStateNumber=str(PetDoorLockState[frameresponse.LockState].value)
             #Update sqlite with lock state integer value
-            sqlcmd('UPDATE doors SET lockingmode=' + frameresponse.LockStateNumber + ' WHERE mac_address = "' + device + '"')
         else:
             frameresponse.Operation="Unknown"
             frameresponse.MSG=tohex(value)
@@ -384,25 +402,27 @@ def parseframe(device, value):
                 frameresponse.Curfew.append(curfewentry)
             curfewcount += 1
             del curfewentries[0:9]
-    elif value[0] == 0x13: #Pet Movement through cat door
-        tag = hextochip(tohex(value[18:25]))
-        curs.execute('select name from pets where tag=(?)', ([tag]))
-        petval = curs.fetchone()
-        if (petval):
-            frameresponse.Animal=petval.name
+    elif value[0] == 0x13: #Pet Movement through Cat door
+        tag = bytestotag(value[18:25])
+        if tag == "Empty":
+            frameresponse.Animal = tag
         else:
-            frameresponse.Animal=tag
+            curs.execute('select name from pets where tag=(?)', ([tag]))
+            petval = curs.fetchone()
+            if petval:
+                frameresponse.Animal = petval.name
+            else:
+                frameresponse.Animal = tag
         AnimalDirection=(value[16] << 8) + value[17]
         #print(AnimalDirection)
         if CatFlapDirection.has_value(AnimalDirection):
             frameresponse.Direction=CatFlapDirection(AnimalDirection).name
         else:
             frameresponse.Direction="**UNKNOWN**"
-        if frameresponse.Direction != "Status":
-            frameresponse.Operation="PetMovement"
-        else:
-            frameresponse.Operation="PetMovementStatus"
-        frameresponse.MSG=tohex(value)
+        frameresponse.Operation="PetMovement"
+        frameresponse.NumberValue=b2iu(value[12:16])
+        frameresponse.OtherTS=b2iu(value[25:29])
+        #frameresponse.MSG=tohex(value)
     elif value[0] == 0x18:
         frameresponse.Operation="Feed"
         #Hard code feeder states
@@ -428,7 +448,7 @@ def parseframe(device, value):
                 tag="Manual"
                 frameresponse.Animal="Manual"
             else:
-                tag = hextochip(tohex(value[8:15]))
+                tag = bytestotag(value[8:15])
                 curs.execute('select name from pets where tag=(?)', ([tag]))
                 petval = curs.fetchone()
                 if (petval):
@@ -472,7 +492,7 @@ def parseframe(device, value):
         curs.execute(upd)
         conn.commit()
         if len(value) > 27:      #Includes the chip that performed the action
-            tag = hextochip(tohex(value[27:34]))
+            tag = bytestotag(value[27:34])
             print("Hex tag",tohex(value[27:34]))
             curs.execute('select name from pets where tag=(?)', ([tag]))
             petval = curs.fetchone()
@@ -480,8 +500,6 @@ def parseframe(device, value):
                 frameresponse.Animal=petval.name
             else:
                 frameresponse.Animal=tag
-        if Print126Frame:
-            print("FF-1B: Felaqua action="+action+',seconds='+ drinktime+',drinkfrom='+drinkfrom+',drinkto='+drinkto)
     else:
         frameresponse.Operation="Unknown"
         frameresponse.MSG=tohex(value)
@@ -547,110 +565,117 @@ def parse132frame(mac_address,offset,value):
     return response
 
 #Parse Pet Door Frames aka 132's sent to the pet door
-def parsedoorframe(mac_address,offset,value):
+def parsedoorframe(mac_address,offset,length,value):
     response = []
     operation = []
     frameresponse = Box()
     message=bytearray.fromhex(value)
     frameresponse.MSG = value
+    messagerange = range(offset,offset+length)
     if PrintFrameDbg:
         print("Operation: " + str(operation) + " mac_address " + str(mac_address) + " offset " + str(offset) + " -value- " + str(value))
     logmsg=""
-    if offset == 33: #Battery and Door Time
-        op="Battery"
-        frameresponse.Operation=op
-        operation.append(op)
+    if all(x in messagerange for x in [33]): #Battery and Door Time
+        print("Register 33 - Battery",messagerange)
+        operation.append("Battery")
         #Battery ADC Calculation, Battery full 0xbd, and dies at 0x61/0x5f.
         #ADC Start for Pet Door, not sure if this is consistent or just my door
         adcstart=2.1075
         #ADC Step value for each increment of the adc value 
         adcstep=0.0225
-        battadc = (int(message[1])*adcstep)+adcstart
+        battadc = (int(message[33-offset])*adcstep)+adcstart
         frameresponse.Battery=str(battadc)
-        frameresponse.Time=converttime(message[2:4])
+        frameresponse.BatteryADC=str(int(message[33-offset]))
         sqlcmd('UPDATE devices SET battery=' + str(battadc) + ' WHERE mac_address = "' + mac_address + '"')
-    elif offset == 34: #Set local time for Pet Door 34 = HH in hex and 35 = MM
-        op="SetTime"
-        frameresponse.Operation=op
-        operation.append(op)
-        frameresponse.Time=converttime(message[1:3])
-    elif offset == 36: #Lock state
-        op="LockState"
-        frameresponse.Operation=op
-        operation.append(op)
-        frameresponse.LockState=PetDoorLockState(int(message[1])).name
-        frameresponse.LockStateNumber=message[1]
-        sqlcmd('UPDATE doors SET lockingmode='+ str(message[1]) +' WHERE mac_address = "' + mac_address + '"')
-    elif offset == 40: #Keep pets out to allow pets to come in state
-        op="LockedOutState"
-        frameresponse.Operation=op
-        operation.append(op)
-        frameresponse.LockedOut=PetDoorLockedOutState(int(message[1])).name
-    elif offset == 59: #Provisioned Chip Count
-        op="PrivChipCount"
-        frameresponse.Operation=op
-        operation.append(op)
-        frameresponse.ChipCount=message[1]
-    elif offset >= 91 and offset <= 308: #Provisioned chips
+    if all(x in messagerange for x in [34,35]): #Set local time for Pet Door 34 = HH in hex and 35 = MM
+        print("Register 34 - Time",messagerange)
+        operation.append("SetTime")
+        frameresponse.Time=converttime(message[34-offset:34-offset+2])
+        frameresponse.TimeMins=converttimetominutes(message[34-offset:34-offset+2])
+    if all(x in messagerange for x in [36]): #Lock state
+        print("Register 36 - Lockstate",messagerange)
+        operation.append("LockState")
+        frameresponse.LockStateNumber=message[36-offset]
+        frameresponse.LockState=PetDoorLockState(int(frameresponse.LockStateNumber)).name
+        sqlcmd('UPDATE doors SET lockingmode='+ str(frameresponse.LockStateNumber) +' WHERE mac_address = "' + mac_address + '"')
+    if all(x in messagerange for x in [40]): #Keep pets out to allow pets to come in state
+        print("Register 40 - LockedOutState",messagerange)
+        operation.append("LockedOutState")
+        frameresponse.LockedOut=PetDoorLockedOutState(int(message[40-offset])).name
+    if all(x in messagerange for x in [59]): #Provisioned Chip Count
+        print("Register 59 - Provchip",messagerange)
+        operation.append("ProvChipCount")
+        frameresponse.ChipCount=message[59-offset]
+    if all(x in messagerange for x in [60]): # Next free chip slot
+        print("Register 60 - next chip",messagerange)
+        operation.append("ProvFreeSlot")
+        frameresponse.ChipSlot = message[60-offset]
+    if offset in range(91,309): #Provisioned chips
+        print("Register 91-309 - provisioned chips",messagerange)
         op="ProvChip"
         frameresponse.Operation=op
         operation.append(op)
-        pet=round((int(offset)-84)/7) #Calculate the pet number
+        pet=round((int(offset)-84)/7)-1 #Calculate the pet number
         chip=doorhextochip(value[4:]) #Calculate chip Number
         frameresponse.PetOffset=pet
         frameresponse.Chip=chip
-    elif offset == 519: #Curfew
+    if offset == 519: #Curfew
+        print("Register 519 - curfew",messagerange)
         op="Curfew"
         frameresponse.Operation=op
         operation.append(op)
-        frameresponse.CurfewState=CurfewState(message[1]).name
-        frameresponse.CurfewStateNumber=message[1]
-        frameresponse.CurfewOn=str(message[2]).zfill(2)+":"+str(message[3]).zfill(2)
-        frameresponse.CurfewOff=str(message[4]).zfill(2)+":"+str(message[5]).zfill(2)
-        sqlcmd('UPDATE doors SET curfewenabled='+ str(message[1]) +' WHERE mac_address = "' + mac_address + '"')
-    elif offset >= 525 and offset <= 618: #Pet movement state in or out
+        frameresponse.CurfewState=CurfewState(message[0]).name
+        frameresponse.CurfewStateNumber=message[0]
+        frameresponse.Curfews=str(message[1]).zfill(2)+":"+str(message[2]).zfill(2)+'-'+str(message[3]).zfill(2)+":"+str(message[4]).zfill(2)
+        sqlcmd('UPDATE doors SET curfewenabled='+ str(message[0]) +' , curfews="'+frameresponse.Curfews+'"  WHERE mac_address = "' + mac_address + '"')
+    if offset in range(525, 618): #Pet movement state in or out
         op="PetMovement"
         frameresponse.Operation=op
         operation.append(op)
         deviceindex=round((int(offset)-522)/3)-1 #Calculate the pet number
-        if PetDoorDirection.has_value(message[3]):
-            direction = PetDoorDirection(message[3]).name
-        else:
-            direction = "Other " + hb(message[3])
-        frameresponse.PetOffset=deviceindex
-        #Find Pet
-        curs.execute('select tag from tagmap where mac_address=(?) and deviceindex=(?)', (mac_address, deviceindex))
-        tagval = curs.fetchone()
-        if (tagval):
-            curs.execute('select name from pets where tag=(?)', ([tagval.tag]))
-            petval = curs.fetchone()
-            if (petval):
-                petname=petval.name
-                if message[3] in [0x61, 0x81]:
-                    petstate = "1" #Inside
+        petstate = message[2]
+        if petstate > 0:
+            if PetDoorDirection.has_value(petstate):
+                direction = PetDoorDirection(petstate).name
+            else:
+                direction = "Other " + hb(petstate)
+            frameresponse.PetOffset=deviceindex
+            #Find Pet
+            curs.execute('select tag from tagmap where mac_address=(?) and deviceindex=(?)', (mac_address, deviceindex))
+            tagval = curs.fetchone()
+            if (tagval):
+                curs.execute('select name from pets where tag=(?)', ([tagval.tag]))
+                petval = curs.fetchone()
+                if (petval):
+                    petname=petval.name
+                    if petstate in [0x61, 0x81]:
+                        petstate = "1" #Inside
+                    else:
+                        petstate = "0" #Otherwise Outside
+                    updatedbtag('petstate',tagval.tag,mac_address,'state', petstate )  # Update state as inside or outside
+                    updatedbtag('petstate',tagval.tag,mac_address,'timestamp', localtimestampfromnow()) #Update timestamp
                 else:
-                    petstate = "0" #Otherwise Outside
-                updatedbtag('petstate',tagval.tag,mac_address,'state', petstate )  # Update state as inside or outside
-                updatedbtag('petstate',tagval.tag,mac_address,'timestamp', localtimestampfromnow()) #Update timestamp
+                    petname="Unknown"
             else:
                 petname="Unknown"
+            frameresponse.Animal=petname
+            frameresponse.Direction=direction
         else:
-            petname="Unknown"
-        frameresponse.Animal=petname
-        frameresponse.Direction=direction
+            frameresponse.Animal = "Empty"
+            frameresponse.Direction = "Null"
         operation.append("PetMovement")
-    elif offset == 621: #Unknown pet went outside, should probably do a lookup to see what animals are still inside and update who is left??
+    if offset == 621: #Unknown pet went outside, should probably do a lookup to see what animals are still inside and update who is left??
         op="PetMovement"
         frameresponse.Operation=op
         operation.append(op)
         frameresponse.PetOffset="621"
-        frameresponse.Animal="Unknown Pet"
+        frameresponse.Animal="UnknownPet"
         frameresponse.Direction="Outside"
         frameresponse.State="OFF"
-    else:
-        op="Other"
-        frameresponse.Operation=op
-        operation.append(op)
+    #else:
+    #    op="Other"
+    #    frameresponse.Operation=op
+    #    operation.append(op)
     response.append(frameresponse)
     response.append({"Operation":operation})
     return response
@@ -753,7 +778,7 @@ def decodehubmqtt(topic,message):
         if Print132Frame:
             print("132 Message : "+message)
         msgsplit[5] = hb(int(msgsplit[5])) #Convert length at offset 5 which is decimal into hex byte so we pass it as a hex string to parsedataframe
-        response.message = parsedoorframe(mac_address, int(msgsplit[4]),"".join(msgsplit[5:]))
+        response.message = parsedoorframe(mac_address, int(msgsplit[4]),int(msgsplit[5]),"".join(msgsplit[6:]))
     elif msgsplit[2] == "132": #Feeder 132 Status
         #Status message has a counter at offset 4 we can ignore:
         if PrintFeederFrame:
@@ -783,7 +808,7 @@ def decodehubmqtt(topic,message):
         if Print2Frame:
             print("2 Message : "+message)
         msgsplit[4] = hb(int(msgsplit[4])) #Convert length at offset 4 which is decimal into hex byte so we pass it as a hex string to parsedoorframe
-        response.message = parsedoorframe(mac_address, int(msgsplit[3]),"".join(msgsplit[4:]))
+        response.message = parsedoorframe(mac_address, int(msgsplit[3]),int(msgsplit[4]),"".join(msgsplit[5:]))
     elif msgsplit[2] == "8": #Action message setting value to Pet Door
         resp.append({"Msg":message})
         resp.append({"Operation":["8"]})
@@ -891,10 +916,23 @@ def generatemessage(mac_address,operation,state):
             "OFF"  : "01", #Disable Curfew State
             "ON"   : "02"  #Enable Curfew State
         })
+        lockstate = Box({
+            "Unlocked":    "00", # Unlocked
+            "LockKeepIn":  "01", # Keep Pets in
+            "LockKeepOut": "02", # Keep Pets out
+            "Locked":      "03", # Locked both ways
+            "CurfewMode":  "04"  #Curfew mode enabled
+        })
         operations = Box({
             "DumpState"    : { "msg" : "3 0 630",                   "desc" : "Dump current registers" },                #Dump all memory registers from 0 to 630
+            "GetBattery"   : { "msg" : "3 30 10",                   "desc" : "Get Battery" },                           #Get Battery State
+            "GetProv"      : { "msg" : "3 59 2",                    "desc" : "Get Prov Tags" },                         #Get Prov Tags
+            "GetSlot"      : { "msg" : "3 60 1",                    "desc" : "Get Prov Tags" },                         #Get Prov Tags
+            "GetTag"       : { "msg":  "3 91 35",                   "desc": "Get Prov Tags"},  # Get Prov Tags
+
             "SetTime"      : { "msg" : "2 34 2 HH MM",              "desc" : "Set the time" },                          #Set the time on the pet door HH MM in hex
             "CustomMode"   : { "msg" : "2 61 3 00 00 00",           "desc" : "Set Custom mode" },                       #Set custom mode as a bit operator
+            "LockState"    : { "msg" : "2 36 1 SS",                 "desc" : "Set Lock State" },                        #Set Lock State
             "Unlocked"     : { "msg" : "2 36 1 00",                 "desc" : "Unlocked" },                              #Unlocked
             "LockKeepIn"   : { "msg" : "2 36 1 01",                 "desc" : "Keep pets in" },                          #Keep Pets in
             "LockKeepOut"  : { "msg" : "2 36 1 02",                 "desc" : "Keep pets out" },                         #Keep Pets out
@@ -936,7 +974,9 @@ def generatemessage(mac_address,operation,state):
             #print("Current curfew mode: ", curfew.curfewenabled)
             curfewsstartstop = curfew.curfews.split('-')
             message = message.replace('FF FF TT TT', converttimetohex(curfewsstartstop[0]) + " " + converttimetohex(curfewsstartstop[1])) #Set the curfew time
-            if state in curfewstate: #Has string value to map
+            if state == 'UPD':
+                message = message.replace("SS", hb(int(curfew.curfewenabled)))
+            elif state in curfewstate: #Has string value to map
                 message = message.replace("SS", curfewstate[state])
             elif hb(int(state)) in curfewstate.values(): #Has value that exists in validation dictionary
                 message = message.replace("SS", hb(int(state)))
@@ -979,10 +1019,6 @@ def generatemessage(mac_address,operation,state):
             "Left"   : "01", #Zero left scale
             "Right"  : "02", #Zero right scale
             "Both"   : "03"  #Zero both scale
-        })
-        chipstate = Box({
-            "disable"  : "00", #Disable chip
-            "enable"   : "01"  #Enable / Provision chip
         })
         #All messages detected sending to the feeder, if the fields have validation then they have a validate date referencing the above dictionary key value pairs
         operations = Box({
@@ -1047,12 +1083,12 @@ def generatemessage(mac_address,operation,state):
                 else:
                     return Box({"error":"Invalid custom mode passed " + state})
 
-            #Chip Provisioning
+            #Tag Provisioning
             if "CC CC CC CC CC CC CC" in message:
                 statesplit = state.split('-')
                 if len(statesplit) == 3:
-                    if statesplit[0] in chipstate:
-                        message = message.replace("SS", chipstate[statesplit[0]])
+                    if TagState.has_member(statesplit[0]):
+                        message = message.replace("SS", hb(TagState[statesplit[0]].value))
                         message = message.replace("II", hb(int(statesplit[1])))
                         chiphex = chiptohex(statesplit[2])
                         message = message.replace("CC CC CC CC CC CC CC", splitbyte(chiphex))
@@ -1068,8 +1104,8 @@ def generatemessage(mac_address,operation,state):
 
     elif EntityType(int(device.product_id)).name == "CATFLAP": #Cat Flap
         ackdatatype = Box({
-            "Noot9"       : "09", #Boot message 09
-            "Noot10"      : "10", #Boot message 10
+            "Boot9"       : "09", #Boot message 09
+            "Boot10"      : "10", #Boot message 10
             "Tags"        : "11", #Tag provisioning
             "Curfew"      : "12", #Curfew
             "PetMovement" : "13", #Pet movement in / out cat flap
@@ -1096,17 +1132,22 @@ def generatemessage(mac_address,operation,state):
         operations = Box({
             "Ack"             : { "msg" : "127 00 00 ZZ ZZ TT TT TT TT SS 00 00",                         "desc" : "Send acknowledge to data type", "validate": ackdatatype },  #Send acknowledge to data type
             "Get"             : { "msg" : "127 01 00 ZZ ZZ TT TT TT TT SS",                               "desc" : "Get current state of data type", "validate": getdatatype }, #Get data type state
-            "SetTime"         : { "msg" : "127 07 00 ZZ ZZ TT TT TT TT 00 00 00 00 05",                   "desc" : "Set the device time" },                                     #Set device time, seems like the last byte = 04 sets time when going forward, 05 sets time, 06 sets time on boot
+            "SetTime"         : { "msg" : "127 07 00 ZZ ZZ TT TT TT TT 00 00 00 00 07",                   "desc" : "Set the device time" },                                     #Set device time, seems like the last byte = 04 sets time when going forward, 05 sets time, 06 sets time on boot
             "Unlocked"        : { "msg" : "127 11 00 ZZ ZZ TT TT TT TT 00 00 00 00 00 00 07 06 00 02",    "desc" : "Unlocked" },                                                 #Unlocked
             "LockKeepIn"      : { "msg" : "127 11 00 ZZ ZZ TT TT TT TT 00 00 00 00 00 00 07 03 00 02",    "desc" : "Keep pets in" },                                            #Keep Pets in
             "LockKeepOut"     : { "msg" : "127 11 00 ZZ ZZ TT TT TT TT 00 00 00 00 00 00 07 05 00 02",    "desc" : "Keep pets out" },                                           #Keep Pets out
             "Locked"          : { "msg" : "127 11 00 ZZ ZZ TT TT TT TT 00 00 00 00 00 00 07 04 00 02",    "desc" : "Locked both way" },                                         #Locked both ways
-            "TagKeepIn"       : { "msg" : "127 11 00 ZZ ZZ TT TT TT TT CC CC CC CC CC CC CC SS II 02",    "desc" : "Set tag KeepIn or normal state" },                          #Cat Flap feature to KeepIn or normal
-            "TagProvision"    : { "msg" : "127 11 00 ZZ ZZ TT TT TT TT CC CC CC CC CC CC CC 02 II SS",    "desc" : "Provision/enable or disable chip" },                        #Provision or enable or disable chip
+            "TagProvision"    : { "msg" : "127 11 00 ZZ ZZ TT TT TT TT CC CC CC CC CC CC CC KK II SS",    "desc" : "Provision/enable or disable chip" },                        #Provision or enable or disable chip
             "Curfew"          : { "msg" : "127 12 00 ZZ ZZ TT TT TT TT 00 00 00 00 00 00 07 00 AA",       "desc" : "Set Curfew" }                                               #Set Curfews
         })
-
-        if operation in operations:
+        if operation == 'Ack':
+            message = operations[operation].msg
+            inack = state.split('-')
+            message = message.replace("SS", hb(int(inack[0], 16)))
+            message = message.replace('ZZ ZZ', splitbyte(int(inack[1]).to_bytes(2, 'little').hex()))  # Replace device send counter in the record
+            hubts = splitbyte(devicetimestampfromnow())
+            message = message.replace('TT TT TT TT', hubts) #Replace timestamp in the record
+        elif operation in operations:
             message = operations[operation].msg
             #This operation has values we should validate
             if "validate" in operations[operation]:
@@ -1118,14 +1159,26 @@ def generatemessage(mac_address,operation,state):
                 else:
                     return Box({"error":"Invalid value passed, check validation", "validate": operations[operation].validate })
 
-            #Chip Provisioning
+            #Tag Provisioning
             if "CC CC CC CC CC CC CC" in message:
                 statesplit = state.split('-')
-                if statesplit[0] in chipstate:
-                    chiphex = chiptohex(statesplit[1])
-                    #print(chiphex)
-                    message = message.replace("CC CC CC CC CC CC CC", splitbyte(chiphex))
-                    message = message.replace("SS", chipstate[statesplit[0]])
+                if len(statesplit) != 4:
+                    return Box({"error":"Invalid tag provisioning needs to be a string with offset, tag, KeepIn/Normal and state ie '1-900.000123456790-Normal-Enabled'"})
+                print("State",statesplit)
+                #Tag Index
+                message = message.replace("II", hb(int(statesplit[0])))
+                #Chip to Hex
+                chiphex = chiptohex(statesplit[1])
+                # print(chiphex)
+                message = message.replace("CC CC CC CC CC CC CC", splitbyte(chiphex))
+                if CatFlapLockState.has_member(statesplit[2]):
+                    message = message.replace("KK", hb(CatFlapLockState[statesplit[2]].value))
+                else:
+                    message = message.replace("KK", '03')
+                if TagState.has_member(statesplit[3]):
+                    message = message.replace("SS", hb(TagState[statesplit[3]].value))
+                else:
+                    message = message.replace("SS", '00')
 
             #Set Curfew - There can be 4 curfew times, and if they are unset then the second for loop applies.
             if "AA" in message:

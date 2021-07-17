@@ -1,4 +1,4 @@
-# Test Cat Flap
+# Test Feeder
 import pytest
 import json
 import logging
@@ -18,6 +18,7 @@ def setup_module():
 def teardown_module():
     log.info('teardown')
 
+#Test Status Messages
 @pytest.mark.pethubstatus
 def test_feeder_battery(request):
     log.info('TEST: ' + request.node.name)
@@ -31,21 +32,27 @@ def test_feeder_battery(request):
     assert result.message[0].Operation == 'Battery'
     assert result.message[0].Battery == "6.062"
 
-@pytest.mark.pethubstatus
-def test_feeder_status_tag1(request): #Zero feeder using button on the back
+@pytest.mark.parametrize("operation,provhex,animal,lockstate, offset, tagstate", [
+    ("Tag", "14 cd 5b 07 00 e1 01 02 00 00", "Cat", "Normal", 0, "Enabled"),  # Tag 1
+    ("Tag", "16 cd 5b 07 00 e1 01 02 01 01", "900.000123456790", "Normal", 1, "Disabled"),  # Tag 1
+    ("Tag", "00 00 00 00 00 00 07 06 02 00", "Empty", "Unlocked", 2, "Enabled"),  # Tag 1
+    ("Tag", "00 00 00 00 00 00 07 06 0a 00", "Empty", "Unlocked", 10, "Enabled"),  # Tag 1
+    ("Tag", "00 00 00 00 00 00 07 06 1e 00", "Empty", "Unlocked", 30, "Enabled"),  # Tag 1
+])
+@pytest.mark.pethubcommand
+def test_feeder_status_tag(request, operation, provhex, animal, lockstate, offset, tagstate):
     log.info('TEST: ' + request.node.name)
-    result = p.decodehubmqtt("pethublocal/messages/4444444444444444","5fef6320 0010 126 12 11 00 0a 00 b8 c8 42 54 14 cd 5b 07 00 e1 01 02 01 00")
+    result = p.decodehubmqtt("pethublocal/messages/4444444444444444", "5fef6320 0000 126 12 11 00 01 00 b8 c8 42 54 " + provhex)
     jsonresult = json.dumps(result, indent=4)
     log.info("Result:\n" + highlight(jsonresult, JsonLexer(), TerminalFormatter()))
     assert result.device == 'Feeder'
-    assert result.message[-1].Operation[0] == 'TagProvision'
-    assert result.message[0].data.msg == '11'
-    assert result.message[0].data.counter == '10'
-    assert result.message[0].Operation == 'TagProvision'
-    assert result.message[0].LockState == "Normal"
-    assert result.message[0].Offset == 1
-    assert result.message[0].Animal == "Cat"
-    assert result.message[0].ChipState == 'Enabled'
+    assert result.operation == 'Status'
+    assert result.message[-1].Operation[0] == operation
+    assert result.message[0].Operation == operation
+    assert result.message[0].Animal == animal
+    assert result.message[0].LockState == lockstate
+    assert result.message[0].Offset == offset
+    assert result.message[0].TagState == tagstate
 
 @pytest.mark.pethubstatus
 def test_feeder_animal_open(request):
@@ -156,9 +163,7 @@ def test_feeder_zero_button(request): #Zero feeder using button on the back
     assert result.message[0].Animal == "Manual"
 
 
-
 #Test Command Messages
-
 @pytest.mark.parametrize("test_acks", [
     ("09"), # Boot message 09
     ("0b"), # Unknown 0b message
@@ -273,42 +278,30 @@ def test_feeder_command_zeroscale(request,test_zeroscale,zerovalue):
     assert result.message[0].Operation == 'ZeroScales'
     assert result.message[0].Scale == test_zeroscale
 
+@pytest.mark.parametrize("operation,provhex,animal,lockstate, offset, tagstate", [
+    ("Tag", "14 cd 5b 07 00 e1 01 02 00 00", "Cat", "Normal", 0, "Enabled"),  # Tag 1
+    ("Tag", "16 cd 5b 07 00 e1 01 02 01 01", "900.000123456790", "Normal", 1, "Disabled"),  # Tag 1
+    ("Tag", "00 00 00 00 00 00 07 06 02 00", "Empty", "Unlocked", 2, "Enabled"),  # Tag 1
+    ("Tag", "00 00 00 00 00 00 07 06 0a 00", "Empty", "Unlocked", 10, "Enabled"),  # Tag 1
+    ("Tag", "00 00 00 00 00 00 07 06 1e 00", "Empty", "Unlocked", 30, "Enabled"),  # Tag 1
+])
 @pytest.mark.pethubcommand
-def test_feeder_command_provision_hdxtag_enable(request):
+def test_feeder_command_tagprovision(request, operation, provhex, animal, lockstate, offset, tagstate):
     log.info('TEST: ' + request.node.name)
-    result = p.decodehubmqtt("pethublocal/messages/4444444444444444","5fef6320 1000 127 11 00 11 00 b8 c8 42 54 01 23 45 67 89 00 03 02 00 00")
+    result = p.decodehubmqtt("pethublocal/messages/4444444444444444",
+                             "5fef6320 1000 127 11 00 01 00 b8 c8 42 54 " + provhex)
     jsonresult = json.dumps(result, indent=4)
     log.info("Result:\n" + highlight(jsonresult, JsonLexer(), TerminalFormatter()))
     assert result.device == 'Feeder'
     assert result.operation == 'Command'
-    assert result.message[-1].Operation[0] == 'TagProvision'
-    assert result.message[0].data.msg == '11'
-    assert result.message[0].data.counter == '17'
-    assert result.message[0].Operation == 'TagProvision'
-    assert result.message[0].Animal == 'HDX_Tag'
-    assert result.message[0].LockState == 'Normal'
-    assert result.message[0].Offset == 0
-    assert result.message[0].ChipState == 'Enabled'
-
-@pytest.mark.pethubcommand
-def test_feeder_command_provision_fdxbcattag_enable(request):
-    log.info('TEST: ' + request.node.name)
-    result = p.decodehubmqtt("pethublocal/messages/4444444444444444","5fef6320 1000 127 11 00 02 00 b8 c8 42 54 14 cd 5b 07 00 e1 01 02 01 00")
-    jsonresult = json.dumps(result, indent=4)
-    log.info("Result:\n" + highlight(jsonresult, JsonLexer(), TerminalFormatter()))
-    assert result.device == 'Feeder'
-    assert result.operation == 'Command'
-    assert result.message[-1].Operation[0] == 'TagProvision'
-    assert result.message[0].data.msg == '11'
-    assert result.message[0].data.counter == '2'
-    assert result.message[0].Operation == 'TagProvision'
-    assert result.message[0].Animal == 'Cat'
-    assert result.message[0].LockState == 'Normal'
-    assert result.message[0].Offset == 1
-    assert result.message[0].ChipState == 'Enabled'
+    assert result.message[-1].Operation[0] == operation
+    assert result.message[0].Operation == operation
+    assert result.message[0].Animal == animal
+    assert result.message[0].LockState == lockstate
+    assert result.message[0].Offset == offset
+    assert result.message[0].TagState == tagstate
 
 #Generate Messages
-
 @pytest.mark.pethubgenerate
 def test_feeder_generate_settime(request):
     log.info('TEST: ' + request.node.name)
@@ -359,9 +352,9 @@ def test_feeder_generate_zeroscales(request,test_zeroscale,zerovalue,zerorespons
     assert "00 19 00 00 00 03 00 00 00 00 01 " + zeroresponse in result.msg
 
 @pytest.mark.parametrize("test_tagprovision,tagvalue,tagresponse", [
-    ("TagProvision", "enable-0-0123456789", " 01 23 45 67 89 00 03 02 00 01"),
-    ("TagProvision", "enable-1-900.000001234567", " 87 d6 12 00 00 e1 01 02 01 01"),
-    ("TagProvision", "disable-2-900.000123456788", " 14 cd 5b 07 00 e1 01 02 02 00"),
+    ("TagProvision", "Enabled-0-0123456789", " 01 23 45 67 89 00 03 02 00 00"),
+    ("TagProvision", "Enabled-1-900.000001234567", " 87 d6 12 00 00 e1 01 02 01 00"),
+    ("TagProvision", "Disabled-2-900.000123456788", " 14 cd 5b 07 00 e1 01 02 02 01"),
 ])
 @pytest.mark.pethubgenerate
 def test_feeder_generate_tagprovision(request,test_tagprovision,tagvalue,tagresponse):

@@ -3,9 +3,9 @@ BEGIN TRANSACTION;
 
 -- Add Devices
 INSERT INTO devices VALUES('0000112233445566',1,'Home','H001-0123456','','','','',0);
-INSERT INTO devices VALUES('3333333333333333',3,'Pet Door','','5.55','','','',0);
+INSERT INTO devices VALUES('3333333333333333',3,'PetDoor','','5.55','','','',0);
 INSERT INTO devices VALUES('4444444444444444',4,'Feeder','U004-0123456','6.198','','','',0);
-INSERT INTO devices VALUES('6666666666666666',6,'Cat Flap','U004-0123456','6.198','','','',0);
+INSERT INTO devices VALUES('6666666666666666',6,'CatFlap','U004-0123456','6.198','','','',0);
 
 -- Add Hub with uptime of 120 mins
 INSERT INTO hubs VALUES('0000112233445566',0,0,1,120);

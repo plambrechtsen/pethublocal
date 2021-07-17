@@ -4,6 +4,10 @@
 CLOUDUSERNAME=**emailaddress**
 CLOUDPASSWORD=**securelongpassword**
 
+#Configure Pet in Home Assistant as either a switch or sensor, this is so if you want to manually set pet inside or outside then set as a switch
+PETAS=sensor
+#PETAS=switch
+
 #Home Assistant MQTT Upstream configuration
 HAMQTTIP=192.168.1.250
 #HAMQTTUSERNAME=user

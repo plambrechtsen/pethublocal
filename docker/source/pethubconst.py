@@ -120,20 +120,11 @@ class PetDoorLockedOutState(SureEnum): # Locked Out State for preventing animals
     Locked_Out      = 3  # Keep pets out
 
 class CatFlapLockState(SureEnum): # Cat Flap Lock State from message type 11.
-    Status0         = 0
-    Status1         = 1
     Normal          = 2  #This is when a cat is provisioned in normal in / out mode
     KeepIn          = 3  #This applies to the cat when they are individually being kept in, and if the device is 07, then it is applying to the door
     Locked          = 4
     KeepOut         = 5
     Unlocked        = 6
-
-class CatLockState(SureEnum): # Per Cat Lock State for Cat Flap where you can have selective keep-in
-    Status0         = 0
-    Status1         = 1
-    Normal          = 2
-    KeepIn          = 3
-    Status4         = 4
 
 class PetDoorDirection(SureEnum): # Pet Movement on Pet Door coming in or out or looked in or unknown animal left
     Outside_LookedIn    = 0x40 #This happens if the pet comes up to the door from outside, puts head in and unlocks the door but doesn't come in.
@@ -171,18 +162,18 @@ class ProvChipFrom(SureEnum): # Chip Provisioned State
     NewCloud        = 2  #Provisioned chip from cloud
     Disabled        = 3  #Provisioned chip from cloud
 
-class ProvChipState(SureEnum): # Chip Provisioned State
+class TagState(SureEnum): # Tag State on Non Pet-Door Device
     Enabled         = 0
     Disabled        = 1
-    LOCK            = 2
+    LockState       = 2
 
 class CatFlapDirection(SureEnum): # Pet Movement on Cat Flap coming in or going out.
-    Out             = 0x0000
-    In              = 0x0101
-    LookedIn        = 0x0201
-    LookedOut       = 0x0200
-    Status1         = 0x0102
-    Status2         = 0x0202
+    Out             = 0x0000  # Animal went out
+    In              = 0x0101  # Animal came in
+    LookedIn        = 0x0201  # Animal Looked in but didn't come in
+    LookedOut       = 0x0200  # Animal Looked out but didn't go out
+    Status2         = 0x0202  # Status 2, this happens a lot with above messages
+    Status1         = 0x0102  # Random Status message I don't know if this happens but added for completeness
 
 class Animal(SureEnum): # Animal mdi mapping
     alien        = 0
