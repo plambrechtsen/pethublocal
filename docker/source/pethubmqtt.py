@@ -156,8 +156,8 @@ def on_petdoor_hub_message(client, obj, msg):
 
         # Update movements through the pet door
         if "PetMovement" in pethub.message[1].Operation:  # Pet Movement
-            if pethub.message[0].Animal.lower() != "UnknownPet":
-                happub(pethub.message[0].Animal.lower() + '/state', pethub.message[0].Direction)
+            if pethub.message[0].Animal.lower() != "unknownpet":
+                happub(pethub.message[0].Animal + '/state', pethub.message[0].Direction)
             log.debug(LogDoorPrefix + " Movement: " + pethub.message[0].Animal.lower() + ' Direction ' + pethub.message[0].Direction)
 
         # Update lock state
@@ -263,7 +263,7 @@ def on_feeder_hub_message(client, obj, msg):
                     if mv['Animal'] != "Manual":
                         petbowl = {"time": mv['Time'], "left": mv['LeftDelta'], "right": mv['RightDelta']}
                         log.debug(LogFeederPrefix + " Animal Ate " + json.dumps(petbowl))
-                        happub(mv['Animal'].lower() + '_bowl/state', json.dumps(petbowl))
+                        happub(mv['Animal'] + '_bowl/state', json.dumps(petbowl))
 
                 else:
                     bowl = {"state": mv['Animal'] + " " + mv['Action'], "left": mv['LeftTo'], "right": mv['RightTo']}
@@ -303,7 +303,7 @@ def on_catflap_hub_message(client, obj, msg):
                     hasepub(devid + "_battery/state", mv['Battery'])
                 if "PetMovement" in values:  # Pet Movement
                     mv = next((fm for fm in pethub['message'] if fm['Operation'] == "PetMovement"), None)
-                    happub(mv['Animal'].lower() + '/state', mv['Direction'])
+                    happub(mv['Animal'] + '/state', mv['Direction'])
                 if "LockState" in values:  # Lock state
                     mv = next((fm for fm in pethub['message'] if fm['Operation'] == "LockState"), None)
                     if mv['LockState'] in ["KeepIn", "Locked"]:
@@ -372,7 +372,7 @@ def haswpub(topic, message):
 
 # Publish to homeassistant pet topic
 def happub(topic, message):
-    ret = mc.publish(ha_pet_topic + topic, message, qos=0, retain=True)
+    ret = mc.publish(ha_pet_topic + topic.replace(' ', '_').lower(), message, qos=0, retain=True)
 
 # Publish to Hub with QOS=1 and don't retain messages
 def hubpub(topic, message):
