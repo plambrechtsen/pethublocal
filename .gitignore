@@ -1,3 +1,5 @@
 #Exclude config.ini and pethublocal.db from commits
+/.idea
 /docker/config.ini
 /docker/source/pethublocal.db
+/docker/test/*.db

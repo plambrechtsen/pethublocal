@@ -351,8 +351,10 @@ def on_ha_curfew_state(client, obj, msg):
     log.info("HA Curfew State Message " + msg.topic + " " + msg.payload.decode("utf-8"))
     lockmsg = phlp.updatedb('doors', '', 'curfews', str(msg.payload.decode("utf-8")))
     log.info("HA Curfew State Message result " + str(lockmsg))
-#    setcurfewmsg = phlp.generatemessage(mac_address, "SetCurfewState", "UPD") #Update curfew on device
-#    log.info("Update result " + json.dumps(setcurfewmsg))
+    mac = msg.topic.split("/")[3].split("_")[1]
+    genmsg = phlp.generatemessage(mac, "SetCurfewState", "UPD") #Update curfew on device
+    hubpub(genmsg.topic, genmsg.msg)
+    log.info("Message " + json.dumps(genmsg))
 
 # Umatched Message
 def on_message(client, obj, msg):
@@ -460,7 +462,12 @@ for device in pethubinit.devices:
         log.debug(LogInitPrefix + 'Generate settime Message: ' + json.dumps(genmsg))
         hubpub(genmsg.topic, genmsg.msg)
 
-        mc.message_callback_add('homeassistant/datetime/pethub/curfew/set', on_ha_curfew_state)
+        # Publish current curfew
+        log.info(LogInitPrefix + 'Curfew: ' + device.curfews)
+        ret = mc.publish('homeassistant/datetime/pethub/curfew_'+mac+'/state', device.curfews, qos=0, retain=True)
+        log.debug(LogInitPrefix + 'Curfew MQTT Response')
+
+        mc.message_callback_add('homeassistant/datetime/pethub/curfew_'+mac+'/set', on_ha_curfew_state)
 
         if pid == 3:  # Pet Door (3)
             log.info('Loading Pet Door: ' + device.name)

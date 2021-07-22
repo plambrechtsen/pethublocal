@@ -200,21 +200,39 @@ class OnOff(SureEnum): # Enabled disabled
     Status           = 2
 
 class FeederCustomMode(SureFlag): #Custom Modes on the Feeder
-    Bit16 = 0x8000       # Bit16 - ?
-    Bit15 = 0x4000       # Bit15 - ?
-    Bit14 = 0x2000       # Bit14 - ?
-    Bit13 = 0x1000       # Bit13 - ?
-    Bit12 = 0x800        # Bit12 - ?
-    Bit11 = 0x400        # Bit11 - ?
-    Bit10 = 0x200        # Bit10 - ?
-    Intruder = 0x100     # Bit9 - Intruder Mode - Close lid when another non-provisioned tag turns up
-    GeniusCat = 0x80     # Bit8 - Genius Cat Mode - Disable open/close button as Genius Cat has figured out how to open the feeder by pressing button.
-    NonSelective = 0x40  # Bit7 - Non Selective Entry - Allow any animal who breaks the infrared link to open feeder
-    Bit6 = 0x20          # Bit6 - ?
-    Bit5 = 0x10          # Bit5 - ?
-    Bit4 = 0x8           # Bit4 - ?
-    Bit3 = 0x4           # Bit3 - ?
-    Bit2 = 0x2           # Bit2 - ?
+    Disabled = 0         # All custom modes disabled
     Bit1 = 0x1           # Bit1 - ?
-    Normal = 0           # Normal mode, all custom modes disabled.
+    Bit2 = 0x2           # Bit2 - ?
+    Bit3 = 0x4           # Bit3 - ?
+    Bit4 = 0x8           # Bit4 - ?
+    Bit5 = 0x10          # Bit5 - ?
+    Bit6 = 0x20          # Bit6 - ?
+    NonSelective = 0x40  # Bit7 - Non Selective Entry - Allow any animal who breaks the infrared link to open feeder
+    GeniusCat = 0x80     # Bit8 - Genius Cat Mode - Disable open/close button as Genius Cat has figured out how to open the feeder by pressing button.
+    Intruder = 0x100     # Bit9 - Intruder Mode - Close lid when another non-provisioned tag turns up
+    Bit10 = 0x200        # Bit10 - ?
+    Bit11 = 0x400        # Bit11 - ?
+    Bit12 = 0x800        # Bit12 - ?
+    Bit13 = 0x1000       # Bit13 - ?
+    Bit14 = 0x2000       # Bit14 - ?
+    Bit15 = 0x4000       # Bit15 - ?
+    Bit16 = 0x8000       # Bit16 - ?
 
+class PetDoorCustomMode(SureFlag):  # Custom Modes on the Feeder
+    Disabled = 0           # All custom modes disabled
+    NonSelective = 0x1     # Custom Mode 1 - Non Selective Entry - Unlocks the door any cats wanting to come in
+    Rechargeables = 0x2    # Custom Mode 2 - Rechargeable Batteries so work with lower voltage from 1.2v Rechargeables vs 1.5v Alkaline
+    ThreeSeconds = 0x4     # Custom Mode 3 - Timid Pets - 3 Seconds delay before closing door
+    TenSeconds = 0x8       # Custom Mode 4 - Slower Locking - 10 Seconds delay before closing door
+    Intruder = 0x10        # Custom Mode 5 - Intruder Mode - Lock outside locks when non-provisioned animal detected by sensor
+    OppositeCurfew = 0x20  # Custom Mode 6 - Opposite Curfew mode -
+    Bit7 = 0x40            # Bit7 - ?
+    Bit8 = 0x80            # Bit8 - ?
+    Bit9 = 0x100           # Bit9 - ?
+    Bit10 = 0x200          # Bit10 - ?
+    Bit11 = 0x400          # Bit11 - ?
+    Bit12 = 0x800          # Bit12 - ?
+    Bit13 = 0x1000         # Bit13 - ?
+    Bit14 = 0x2000         # Bit14 - ?
+    Bit15 = 0x4000         # Bit15 - ?
+    Bit16 = 0x8000         # Bit16 - ?

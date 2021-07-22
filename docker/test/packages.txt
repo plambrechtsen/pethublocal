@@ -1,0 +1,7 @@
+wheel
+paho-mqtt
+python-box
+configparser
+pytz
+pygments
+
