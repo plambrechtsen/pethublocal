@@ -41,15 +41,48 @@ So... that last value is what you need, it's the password for the AWS Certificat
 
 ### Newer hubs or hubs already upgraded
 
-If you have a H010 revision hub or have already upgraded the firmware then you need to get a soldering iron out to get the password. First you need a TTL 3.3v Serial Adapter that you solder onto the Hub Mainboard. This will of course void any warranty and don't blame me if you brick your hub, that being said, it isn't that hard. I recommend soldering to the side connector to pins 3, 7 & 8 as per: 
+If you have a H010 revision hub or have already upgraded the firmware then you need to get a soldering iron out to get the password. First you need a TTL 3.3v Serial Adapter that you solder onto the Hub Mainboard. This will of course void any warranty and don't blame me if you brick your hub, that being said, it isn't that hard.
+
+First I recommend you download the firmware, which is in the [config.ini](https://github.com/plambrechtsen/pethublocal/blob/main/docker/config.ini.sample):
+
+```
+#Support downloading the firmware for your hub when it first connects to get the credentials
+DOWNLOADFIRMWARE=True
+```
+
+When the hub has connected to the docker stack for the first time it should automatically download the current firmware and put it into docker/output/web/H0xx-0xxxxxx-1.177-xx.bin where the last two xx are the 76 pages of the firmware, they are XOR encrypted and decrypted by the hub during the firmware update.
+
+Now to connect up the console. For this you need to connect a TTL serial adapter to the correct header pins. This will void any warranty and you are responsible if you break it... With that out of the way.
+
+I recommend soldering to the side connector to pins 3, 7 & 8 as per: 
 
 https://github.com/plambrechtsen/pethublocal/tree/main/docs/Hub
 
+Then connect the serial console at 57600 8/N/1
+
+If you are using windows then I recommend Putty and you can set the line of scroll back to something larger than 2000 characters under Window -> Lines of Scrollback to something like 2000000
+This is because a firmware update generates about 20k lines.
+
+### BE AWARE YOU ARE JUST ABOUT TO FIRMWARE UPDATE YOUR HUB. DO NOT UNPLUG IT WHILE IT IS DOING THE UPDATE AS YOU COULD BRICK YOUR HUB JUST LEAVE IT TO COMPLETE!!!!
+
 Then if you have it working on 57600/8/N/1 you should see the standard boot message when the hub normally. You should save the console log output to a file, as the firmware update generates about 20k lines, so if you are using Windows and Putty change the scroll back to 200000 or some large number.
 Make sure to set your TTY to "raw" mode, otherwise the terminal driver might interfere by interpreting control characters. On Linux this can be achieved by running `stty -F /dev/ttyUSB0 raw 57600`.
-Then press and hold the reset button underneath, watch the firmware be re-applied and then there is this python script: [fwlogtopw.py](docker/source/fwlogtopw.py)
+
+Lastly unplug the power to the hub and then hold down the "reset" button underneath the hub with a pen or something then plug the power in and you will see the the firmware update process start. This doesn't actually reset the hub, it just causes it to download the latest firmware so you won't lose your cloud configuration
 
 Which takes the output of the firmware update and prints the serial number.
+
+Then there is this python script: [fwlogtopw.py](docker/source/fwlogtopw.py) which takes the output of the firmware update and extracts the long_serial for you.
+
+Then you can use these commands to extract the PKCS12 from the credentials file and test to make sure the password is correct.
+
+```
+serialnumber=H0xx-0xxxxxx
+macaddress=0000xxxxxxxxxxxx
+certpassword=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+awk -F":" '{print $9}' docker/output/web/$serialnumber-$macaddress-2.43.original.bin | base64 -d > $serialnumber.p12
+openssl pkcs12 -nodes -passin pass:$certpassword -in $serialnumber.p12
+```
 
 ### [PolarProxy](PolarProxy)
 
