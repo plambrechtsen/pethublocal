@@ -112,3 +112,29 @@ If you want to remove a device that is provisioned then you specify the device n
 |-|-|
 |TS 1000 2 22 1 00|Remove device 0
 |TS 1000 2 22 1 01|Remove device 1
+
+### Registers > 45
+
+The registers above 45 are the provisioned devices connected to the hub with 16 bytes for each device.
+The first 8 bytes which can be upper cased and would be the same as the topic names for the device specific messages
+The second 8 bytes is the status of the device.
+Byte 1 Device Type and Status as bitwise:
+as per the Hub Console
+
+| Bit 7-2 | Bit 1 | Bit 0 | Hex |
+|-|-|-|-|
+|DeviceType|Online|Valid|HexValue|
+|6|1|1|`0x1B`|
+|6|0|1|`0x19`|
+|8|1|1|`0x21`|
+|4|1|1|`0x13`|
+|3|1|1|`0x0F`|
+
+So for the value `valid=1 online=1 type=6` the bits `00011011` = `0x1b` as hex or 27 in decimal
+
+Bytes 5-8 are the `last_heard` which seems to be a little endian signed integer of milliseconds for the current 24-hour period.
+From console
+
+`last_heard=-1130311770`
+
+`print(int.from_bytes(bytes.fromhex("A6 CF A0 BC"), byteorder='little', signed=True)`
