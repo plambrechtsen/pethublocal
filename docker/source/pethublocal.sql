@@ -8,7 +8,7 @@ CREATE TABLE doors(mac_address TEXT, lockingmode INTEGER, curfewenabled INTEGER,
 DROP TABLE IF EXISTS feeders;
 CREATE TABLE feeders(mac_address TEXT, bowltype INTEGER, bowl1 INTEGER, bowl2 INTEGER, bowltarget1 INTEGER, bowltarget2 INTEGER, close_delay INTEGER );
 DROP TABLE IF EXISTS tagmap;
-CREATE TABLE tagmap(mac_address TEXT, deviceindex INTEGER, tag TEXT, UNIQUE (mac_address, deviceindex) ON CONFLICT REPLACE );
+CREATE TABLE tagmap(mac_address TEXT, deviceindex INTEGER, tag TEXT, profile TEXT, UNIQUE (mac_address, deviceindex) ON CONFLICT REPLACE );
 DROP TABLE IF EXISTS pets;
 CREATE TABLE pets(tag TEXT, name TEXT, species INTEGER );
 DROP TABLE IF EXISTS petstate;
