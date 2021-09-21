@@ -94,7 +94,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v3
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/pethublocal-web
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/pethublocal-pethub
       - uses: docker/build-push-action@v2
         with:
           context: docker/pethub
