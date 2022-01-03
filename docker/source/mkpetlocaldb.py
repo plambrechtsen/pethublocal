@@ -89,7 +89,11 @@ def makedb(data):
                     timestamp = pet.status.activity.since
                     if 'device_id' in pet.status.activity:
                         device_id = pet.status.activity.device_id
-                        mac_address = [x for x in devices if x["id"]==device_id][0].mac_address
+                        pet_device = (x for x in devices if x["id"]==device_id)
+                        if len(list(pet_device)) > 0:
+                            mac_address = pet_device[0].mac_address
+                        else:
+                            mac_address = ''
                     else:
                         device_id = ''
                         mac_address = ''
@@ -103,7 +107,11 @@ def makedb(data):
                     timestamp = pet.status.feeding.at
                     if 'device_id' in pet.status.feeding:
                         device_id = pet.status.feeding.device_id
-                        mac_address = [x for x in devices if x["id"]==device_id][0].mac_address
+                        pet_device = (x for x in devices if x["id"]==device_id)
+                        if len(list(pet_device)) > 0:
+                            mac_address = pet_device[0].mac_address
+                        else:
+                            mac_address = ''
                     else:
                         device_id = ''
                         mac_address = ''
@@ -118,7 +126,11 @@ def makedb(data):
                     timestamp = pet.status.drinking.at
                     if 'device_id' in pet.status.drinking:
                         device_id = pet.status.drinking.device_id
-                        mac_address = [x for x in devices if x["id"]==device_id][0].mac_address
+                        pet_device = (x for x in devices if x["id"]==device_id)
+                        if len(list(pet_device)) > 0:
+                            mac_address = pet_device[0].mac_address
+                        else:
+                            mac_address = ''
                     else:
                         device_id = ''
                         mac_address = ''
